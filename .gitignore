@@ -1,6 +1,13 @@
 # Gemini CLI - Test Data
-data/
+/data/
 *.npy
 
 # Backup git directories
 .git_backup/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Model checkpoints
+checkpoints/
