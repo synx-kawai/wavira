@@ -20,6 +20,17 @@ setup(
             "pytest>=7.0.0",
             "pytest-cov>=4.0.0",
         ],
+        "logging": [
+            "tensorboard>=2.14.0",
+        ],
+        "config": [
+            "pyyaml>=6.0",
+        ],
+        "full": [
+            "tensorboard>=2.14.0",
+            "pyyaml>=6.0",
+            "pyserial>=3.5",
+        ],
     },
     entry_points={
         "console_scripts": [

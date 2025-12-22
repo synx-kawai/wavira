@@ -156,7 +156,29 @@ class WhoFi(nn.Module):
         Returns:
             Signature vector of shape (batch, signature_dim)
             If return_features=True, returns (signature, encoder_output)
+
+        Raises:
+            ValueError: If input tensor has incorrect shape
         """
+        # Input shape validation
+        if x.dim() != 4:
+            raise ValueError(
+                f"Expected 4D input tensor (batch, channels, subcarriers, seq_len), "
+                f"got {x.dim()}D tensor with shape {tuple(x.shape)}"
+            )
+
+        if x.size(1) != self.n_channels:
+            raise ValueError(
+                f"Expected {self.n_channels} channels, got {x.size(1)}. "
+                f"Input shape: {tuple(x.shape)}, expected: (batch, {self.n_channels}, {self.n_subcarriers}, seq_len)"
+            )
+
+        if x.size(2) != self.n_subcarriers:
+            raise ValueError(
+                f"Expected {self.n_subcarriers} subcarriers, got {x.size(2)}. "
+                f"Input shape: {tuple(x.shape)}, expected: (batch, {self.n_channels}, {self.n_subcarriers}, seq_len)"
+            )
+
         batch_size = x.size(0)
 
         # Reshape: (batch, channels, subcarriers, seq) -> (batch, seq, channels * subcarriers)

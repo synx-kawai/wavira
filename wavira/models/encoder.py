@@ -292,6 +292,11 @@ def get_encoder(
             dropout=dropout,
         )
     elif encoder_type == "bilstm":
+        if hidden_dim % 2 != 0:
+            raise ValueError(
+                f"hidden_dim must be even for BiLSTM encoder (got {hidden_dim}). "
+                "BiLSTM uses hidden_dim // 2 for each direction."
+            )
         return BiLSTMEncoder(
             input_dim=input_dim,
             hidden_dim=hidden_dim // 2,  # Half for each direction

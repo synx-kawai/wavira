@@ -9,9 +9,11 @@ Implements the training procedure as described in the paper:
 """
 
 import os
+import json
 import time
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List, Callable
+from dataclasses import dataclass, field, asdict
+from typing import Optional, Dict, Any, List, Callable, Union
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -23,6 +25,21 @@ from tqdm import tqdm
 from wavira.models.whofi import WhoFi
 from wavira.losses.inbatch_loss import InBatchNegativeLoss
 from wavira.utils.metrics import evaluate_reid_torch
+
+# Optional TensorBoard support
+try:
+    from torch.utils.tensorboard import SummaryWriter
+    TENSORBOARD_AVAILABLE = True
+except ImportError:
+    TENSORBOARD_AVAILABLE = False
+    SummaryWriter = None
+
+# Optional YAML support
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
 
 
 @dataclass
@@ -61,6 +78,108 @@ class TrainingConfig:
     # Early stopping
     early_stopping_patience: int = 50
     early_stopping_min_delta: float = 0.001
+
+    # Logging
+    use_tensorboard: bool = True
+    tensorboard_log_dir: str = "runs"
+    experiment_name: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert config to dictionary."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, config_dict: Dict[str, Any]) -> "TrainingConfig":
+        """Create config from dictionary."""
+        # Filter out unknown keys
+        valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered_dict = {k: v for k, v in config_dict.items() if k in valid_keys}
+        return cls(**filtered_dict)
+
+    @classmethod
+    def from_yaml(cls, yaml_path: Union[str, Path]) -> "TrainingConfig":
+        """
+        Load config from YAML file.
+
+        Args:
+            yaml_path: Path to YAML config file
+
+        Returns:
+            TrainingConfig instance
+
+        Raises:
+            ImportError: If PyYAML is not installed
+            FileNotFoundError: If config file doesn't exist
+        """
+        if not YAML_AVAILABLE:
+            raise ImportError(
+                "PyYAML is required for YAML config loading. "
+                "Install with: pip install pyyaml"
+            )
+
+        yaml_path = Path(yaml_path)
+        if not yaml_path.exists():
+            raise FileNotFoundError(f"Config file not found: {yaml_path}")
+
+        with open(yaml_path, 'r') as f:
+            config_dict = yaml.safe_load(f)
+
+        return cls.from_dict(config_dict)
+
+    @classmethod
+    def from_json(cls, json_path: Union[str, Path]) -> "TrainingConfig":
+        """
+        Load config from JSON file.
+
+        Args:
+            json_path: Path to JSON config file
+
+        Returns:
+            TrainingConfig instance
+        """
+        json_path = Path(json_path)
+        if not json_path.exists():
+            raise FileNotFoundError(f"Config file not found: {json_path}")
+
+        with open(json_path, 'r') as f:
+            config_dict = json.load(f)
+
+        return cls.from_dict(config_dict)
+
+    def save_yaml(self, yaml_path: Union[str, Path]) -> None:
+        """
+        Save config to YAML file.
+
+        Args:
+            yaml_path: Path to save YAML config
+
+        Raises:
+            ImportError: If PyYAML is not installed
+        """
+        if not YAML_AVAILABLE:
+            raise ImportError(
+                "PyYAML is required for YAML config saving. "
+                "Install with: pip install pyyaml"
+            )
+
+        yaml_path = Path(yaml_path)
+        yaml_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(yaml_path, 'w') as f:
+            yaml.dump(self.to_dict(), f, default_flow_style=False, sort_keys=False)
+
+    def save_json(self, json_path: Union[str, Path]) -> None:
+        """
+        Save config to JSON file.
+
+        Args:
+            json_path: Path to save JSON config
+        """
+        json_path = Path(json_path)
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(json_path, 'w') as f:
+            json.dump(self.to_dict(), f, indent=2)
 
 
 class Trainer:
@@ -128,6 +247,40 @@ class Trainer:
 
         # Create checkpoint directory
         os.makedirs(self.config.checkpoint_dir, exist_ok=True)
+
+        # Initialize TensorBoard writer
+        self.writer: Optional[SummaryWriter] = None
+        if self.config.use_tensorboard and TENSORBOARD_AVAILABLE:
+            log_dir = self._get_tensorboard_log_dir()
+            self.writer = SummaryWriter(log_dir=log_dir)
+            # Log hyperparameters
+            self.writer.add_text("config", str(self.config.to_dict()))
+        elif self.config.use_tensorboard and not TENSORBOARD_AVAILABLE:
+            print("Warning: TensorBoard requested but not available. Install with: pip install tensorboard")
+
+    def _get_tensorboard_log_dir(self) -> str:
+        """Generate TensorBoard log directory path."""
+        base_dir = self.config.tensorboard_log_dir
+        if self.config.experiment_name:
+            return os.path.join(base_dir, self.config.experiment_name)
+        else:
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            return os.path.join(base_dir, f"wavira_{timestamp}")
+
+    def _log_metrics(self, metrics: Dict[str, float], step: int, prefix: str = "") -> None:
+        """Log metrics to TensorBoard."""
+        if self.writer is None:
+            return
+
+        for name, value in metrics.items():
+            tag = f"{prefix}/{name}" if prefix else name
+            self.writer.add_scalar(tag, value, step)
+
+    def close(self) -> None:
+        """Close TensorBoard writer and cleanup resources."""
+        if self.writer is not None:
+            self.writer.close()
+            self.writer = None
 
     def train_epoch(
         self,
@@ -252,81 +405,95 @@ class Trainer:
         """
         print(f"Training on {self.device}")
         print(f"Model parameters: {sum(p.numel() for p in self.model.parameters()):,}")
+        if self.writer is not None:
+            print(f"TensorBoard logs: {self._get_tensorboard_log_dir()}")
 
         patience_counter = 0
         best_epoch = 0
 
-        for epoch in range(self.config.epochs):
-            self.current_epoch = epoch
-            start_time = time.time()
+        try:
+            for epoch in range(self.config.epochs):
+                self.current_epoch = epoch
+                start_time = time.time()
 
-            # Train epoch
-            train_metrics = self.train_epoch(train_loader)
+                # Train epoch
+                train_metrics = self.train_epoch(train_loader)
 
-            # Update scheduler
-            self.scheduler.step()
+                # Update scheduler
+                self.scheduler.step()
 
-            epoch_time = time.time() - start_time
+                epoch_time = time.time() - start_time
 
-            # Log training metrics
-            log_entry = {
-                "epoch": epoch + 1,
-                "lr": self.scheduler.get_last_lr()[0],
-                "epoch_time": epoch_time,
-                **train_metrics,
-            }
+                # Log training metrics
+                log_entry = {
+                    "epoch": epoch + 1,
+                    "lr": self.scheduler.get_last_lr()[0],
+                    "epoch_time": epoch_time,
+                    **train_metrics,
+                }
 
-            # Evaluate periodically
-            if val_loader is not None and (epoch + 1) % self.config.eval_interval == 0:
-                val_metrics = self.evaluate(val_loader)
-                log_entry.update({f"val_{k}": v for k, v in val_metrics.items()})
+                # Log to TensorBoard
+                self._log_metrics({"loss": train_metrics["train_loss"]}, epoch + 1, "train")
+                self._log_metrics({"lr": self.scheduler.get_last_lr()[0]}, epoch + 1)
 
-                # Check for improvement
-                current_map = val_metrics["mAP"]
-                current_rank1 = val_metrics["Rank-1"]
+                # Evaluate periodically
+                if val_loader is not None and (epoch + 1) % self.config.eval_interval == 0:
+                    val_metrics = self.evaluate(val_loader)
+                    log_entry.update({f"val_{k}": v for k, v in val_metrics.items()})
 
-                if current_map > self.best_map + self.config.early_stopping_min_delta:
-                    self.best_map = current_map
-                    self.best_rank1 = current_rank1
-                    best_epoch = epoch + 1
-                    patience_counter = 0
+                    # Log validation metrics to TensorBoard
+                    self._log_metrics(val_metrics, epoch + 1, "val")
 
-                    # Save best model
-                    self.save_checkpoint("best_model.pt")
+                    # Check for improvement
+                    current_map = val_metrics["mAP"]
+                    current_rank1 = val_metrics["Rank-1"]
+
+                    if current_map > self.best_map + self.config.early_stopping_min_delta:
+                        self.best_map = current_map
+                        self.best_rank1 = current_rank1
+                        best_epoch = epoch + 1
+                        patience_counter = 0
+
+                        # Save best model
+                        self.save_checkpoint("best_model.pt")
+                    else:
+                        patience_counter += 1
+
+                    print(
+                        f"Epoch {epoch + 1}/{self.config.epochs} | "
+                        f"Loss: {train_metrics['train_loss']:.4f} | "
+                        f"mAP: {val_metrics['mAP']:.4f} | "
+                        f"Rank-1: {val_metrics['Rank-1']:.4f} | "
+                        f"Time: {epoch_time:.1f}s"
+                    )
+
+                    # Early stopping
+                    if patience_counter >= self.config.early_stopping_patience:
+                        print(f"Early stopping at epoch {epoch + 1}")
+                        break
+
                 else:
-                    patience_counter += 1
+                    print(
+                        f"Epoch {epoch + 1}/{self.config.epochs} | "
+                        f"Loss: {train_metrics['train_loss']:.4f} | "
+                        f"LR: {self.scheduler.get_last_lr()[0]:.6f} | "
+                        f"Time: {epoch_time:.1f}s"
+                    )
 
-                print(
-                    f"Epoch {epoch + 1}/{self.config.epochs} | "
-                    f"Loss: {train_metrics['train_loss']:.4f} | "
-                    f"mAP: {val_metrics['mAP']:.4f} | "
-                    f"Rank-1: {val_metrics['Rank-1']:.4f} | "
-                    f"Time: {epoch_time:.1f}s"
-                )
+                self.training_history.append(log_entry)
 
-                # Early stopping
-                if patience_counter >= self.config.early_stopping_patience:
-                    print(f"Early stopping at epoch {epoch + 1}")
-                    break
+                # Save checkpoint periodically
+                if (epoch + 1) % self.config.save_interval == 0:
+                    self.save_checkpoint(f"checkpoint_epoch_{epoch + 1}.pt")
 
-            else:
-                print(
-                    f"Epoch {epoch + 1}/{self.config.epochs} | "
-                    f"Loss: {train_metrics['train_loss']:.4f} | "
-                    f"LR: {self.scheduler.get_last_lr()[0]:.6f} | "
-                    f"Time: {epoch_time:.1f}s"
-                )
+                # Run callbacks
+                if callbacks:
+                    for callback in callbacks:
+                        callback(self, log_entry)
 
-            self.training_history.append(log_entry)
-
-            # Save checkpoint periodically
-            if (epoch + 1) % self.config.save_interval == 0:
-                self.save_checkpoint(f"checkpoint_epoch_{epoch + 1}.pt")
-
-            # Run callbacks
-            if callbacks:
-                for callback in callbacks:
-                    callback(self, log_entry)
+        finally:
+            # Ensure TensorBoard writer is closed
+            self.close()
 
         # Save final model
         self.save_checkpoint("final_model.pt")

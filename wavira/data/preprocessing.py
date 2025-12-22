@@ -75,6 +75,8 @@ def hampel_filter(
     # Scale factor for MAD to standard deviation
     k = 1.4826
 
+    n_signals = filtered.shape[0]
+
     for i in range(n_samples):
         # Define window boundaries
         start = max(0, i - window_size)
@@ -87,12 +89,20 @@ def hampel_filter(
         median = np.median(window, axis=1, keepdims=True)
         mad = k * np.median(np.abs(window - median), axis=1)
 
+        # Flatten median for comparison (ensure at least 1D)
+        median_flat = median.ravel()
+
         # Identify outliers
-        deviation = np.abs(filtered[:, i] - median.squeeze())
+        deviation = np.abs(filtered[:, i] - median_flat)
         outlier_mask = deviation > threshold * mad
 
         # Replace outliers with median
-        filtered[outlier_mask, i] = median.squeeze()[outlier_mask]
+        if n_signals == 1:
+            # Handle single signal case (from 1D input)
+            if outlier_mask[0]:
+                filtered[0, i] = median_flat[0]
+        else:
+            filtered[outlier_mask, i] = median_flat[outlier_mask]
 
     # Restore original shape
     filtered = filtered.reshape(original_shape)

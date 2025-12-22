@@ -159,14 +159,16 @@ class TestWhoFiModel:
     def test_whofi_similarity(self, sample_csi):
         """Test similarity computation."""
         model = WhoFi()
+        model.eval()  # Disable dropout for deterministic output
 
-        sig1 = model(sample_csi)
-        sig2 = model(sample_csi)
+        with torch.no_grad():
+            sig1 = model(sample_csi)
+            sig2 = model(sample_csi)
 
         similarity = model.compute_similarity(sig1, sig2)
 
         assert similarity.shape == (4, 4)
-        # Self-similarity should be high
+        # Self-similarity should be 1.0 (same input, eval mode)
         assert torch.allclose(torch.diag(similarity), torch.ones(4), atol=1e-5)
 
     def test_whofi_encoder_types(self, sample_csi):
