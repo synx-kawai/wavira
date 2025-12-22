@@ -37,6 +37,18 @@ def parse_args():
         help="Directory containing test CSI data",
     )
     parser.add_argument(
+        "--file_list",
+        type=str,
+        default=None,
+        help="Path to file containing list of .npy files for evaluation",
+    )
+    parser.add_argument(
+        "--samples_per_class",
+        type=int,
+        default=500,
+        help="Number of samples per class (for file list mode)",
+    )
+    parser.add_argument(
         "--use_synthetic",
         action="store_true",
         help="Use synthetic data for testing",
@@ -64,7 +76,7 @@ def main():
 
     # Load checkpoint
     print(f"Loading checkpoint from {args.checkpoint}")
-    checkpoint = torch.load(args.checkpoint, map_location=device)
+    checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
 
     config = checkpoint["config"]
 
@@ -105,6 +117,15 @@ def main():
             preprocess=False,
             normalize=True,
         )
+    elif args.file_list:
+        print(f"\nLoading test data from {args.file_list}")
+        dataset = CSIDataset(
+            file_list=args.file_list,
+            samples_per_class=args.samples_per_class,
+            sequence_length=config.sequence_length,
+            preprocess=True,
+            normalize=True,
+        )
     elif args.data_dir:
         print(f"\nLoading test data from {args.data_dir}")
         dataset = CSIDataset(
@@ -114,7 +135,7 @@ def main():
             normalize=True,
         )
     else:
-        print("Error: Must provide --data_dir or --use_synthetic")
+        print("Error: Must provide --data_dir, --file_list, or --use_synthetic")
         sys.exit(1)
 
     print(f"Test dataset size: {len(dataset)} samples")

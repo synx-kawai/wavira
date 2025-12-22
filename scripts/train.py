@@ -33,6 +33,24 @@ def parse_args():
         help="Directory containing CSI data",
     )
     parser.add_argument(
+        "--train_file_list",
+        type=str,
+        default=None,
+        help="Path to file containing list of training .npy files",
+    )
+    parser.add_argument(
+        "--val_file_list",
+        type=str,
+        default=None,
+        help="Path to file containing list of validation .npy files",
+    )
+    parser.add_argument(
+        "--samples_per_class",
+        type=int,
+        default=500,
+        help="Number of samples per class (for file list mode)",
+    )
+    parser.add_argument(
         "--use_synthetic",
         action="store_true",
         help="Use synthetic data for testing",
@@ -155,6 +173,34 @@ def main():
             normalize=True,
         )
 
+    elif args.train_file_list and args.val_file_list:
+        print(f"Loading training data from {args.train_file_list}")
+        train_dataset = CSIDataset(
+            file_list=args.train_file_list,
+            samples_per_class=args.samples_per_class,
+            sequence_length=args.sequence_length,
+            preprocess=True,
+            normalize=True,
+        )
+        print(f"Loading validation data from {args.val_file_list}")
+        val_dataset = CSIDataset(
+            file_list=args.val_file_list,
+            samples_per_class=args.samples_per_class,
+            sequence_length=args.sequence_length,
+            preprocess=True,
+            normalize=True,
+        )
+        # Infer dimensions from first sample
+        sample, _ = train_dataset[0]
+        n_channels = sample.shape[0]
+        n_subcarriers = sample.shape[1]
+
+        print(f"Train dataset size: {len(train_dataset)} samples")
+        print(f"Validation dataset size: {len(val_dataset)} samples")
+        print(f"Number of classes (train): {train_dataset.n_classes}")
+        print(f"Number of classes (val): {val_dataset.n_classes}")
+        print(f"Input shape: ({n_channels}, {n_subcarriers}, {args.sequence_length})")
+
     elif args.data_dir:
         print(f"Loading data from {args.data_dir}")
         dataset = CSIDataset(
@@ -168,24 +214,24 @@ def main():
         n_channels = sample.shape[0]
         n_subcarriers = sample.shape[1]
 
+        print(f"Dataset size: {len(dataset)} samples")
+        print(f"Number of classes: {dataset.n_classes}")
+        print(f"Input shape: ({n_channels}, {n_subcarriers}, {args.sequence_length})")
+
+        # Split dataset
+        train_size = int(0.7 * len(dataset))
+        val_size = len(dataset) - train_size
+        train_dataset, val_dataset = random_split(
+            dataset,
+            [train_size, val_size],
+            generator=torch.Generator().manual_seed(args.seed),
+        )
+
+        print(f"Train size: {len(train_dataset)}, Val size: {len(val_dataset)}")
+
     else:
-        print("Error: Must provide --data_dir or --use_synthetic")
+        print("Error: Must provide --data_dir, --train_file_list/--val_file_list, or --use_synthetic")
         sys.exit(1)
-
-    print(f"Dataset size: {len(dataset)} samples")
-    print(f"Number of classes: {dataset.n_classes}")
-    print(f"Input shape: ({n_channels}, {n_subcarriers}, {args.sequence_length})")
-
-    # Split dataset
-    train_size = int(0.7 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(
-        dataset,
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(args.seed),
-    )
-
-    print(f"Train size: {len(train_dataset)}, Val size: {len(val_dataset)}")
 
     # Create data loaders
     train_loader = DataLoader(

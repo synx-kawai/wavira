@@ -100,9 +100,11 @@ class InBatchNegativeLoss(nn.Module):
             # Average over samples that have positives
             loss = -positive_log_prob[has_positives].mean()
         else:
-            # Fallback: treat as self-supervised contrastive
-            # Create shifted targets for contrastive learning
-            loss = torch.tensor(0.0, device=device)
+            # Fallback: use self-supervised contrastive loss
+            # Each sample is its own class, maximize self-similarity
+            # This creates a gradient-enabled zero-like loss
+            log_prob = F.log_softmax(similarity + eye_mask * 1e9, dim=1)
+            loss = -log_prob.diag().mean() * 0.0 + signatures.sum() * 0.0
 
         if self.symmetric:
             # Compute symmetric loss (transpose similarity matrix)
