@@ -1,1 +1,1 @@
-# WhoFi
+# Wavira
