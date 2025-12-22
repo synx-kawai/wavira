@@ -1,0 +1,6 @@
+# Gemini CLI - Test Data
+data/
+*.npy
+
+# Backup git directories
+.git_backup/
