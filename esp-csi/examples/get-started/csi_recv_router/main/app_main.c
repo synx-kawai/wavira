@@ -21,7 +21,6 @@
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
-#include "esp_now.h"
 
 #include "lwip/inet.h"
 #include "lwip/netdb.h"
