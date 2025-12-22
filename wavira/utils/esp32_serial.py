@@ -15,8 +15,6 @@ import logging
 from typing import Optional, Callable, List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
-import select
-import sys
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +49,11 @@ class ESP32Serial:
     - Buffer management
     - Graceful shutdown
     """
+
+    # Class constants
+    POLL_INTERVAL = 0.05  # 50ms polling for responsive shutdown
+    DATA_TIMEOUT = 10.0   # Seconds without data before checking connection
+    RESET_DELAY = 0.5     # Delay after ESP32 reset
 
     def __init__(
         self,
@@ -193,8 +196,48 @@ class ESP32Serial:
             self._serial.setRTS(True)
             time.sleep(0.1)
             self._serial.setRTS(False)
-            time.sleep(0.5)
+            time.sleep(self.RESET_DELAY)
             logger.debug("ESP32 reset complete")
+
+    def _read_available_data(self) -> Optional[bytes]:
+        """
+        Read available data from serial port (non-blocking).
+
+        Returns:
+            Bytes read, empty bytes if no data, or None if error
+        """
+        try:
+            waiting = self._serial.in_waiting
+            if waiting == 0:
+                return b""  # No data available (not an error)
+            return self._serial.read(waiting)
+        except (serial.SerialException, OSError) as e:
+            logger.error(f"Read error: {e}")
+            self._set_state(ConnectionState.ERROR)
+            return None  # Error occurred
+
+    def _process_buffer(self, buffer: bytes) -> tuple[List[CSIPacket], bytes]:
+        """
+        Process buffer and extract complete CSI packets.
+
+        Args:
+            buffer: Raw bytes buffer
+
+        Returns:
+            Tuple of (list of parsed packets, remaining buffer)
+        """
+        packets = []
+        while b'\n' in buffer:
+            line, buffer = buffer.split(b'\n', 1)
+            try:
+                decoded = line.decode('utf-8', errors='ignore').strip()
+                if decoded and "CSI_DATA" in decoded:
+                    packet = self._parse_csi_line(decoded)
+                    if packet:
+                        packets.append(packet)
+            except Exception as e:
+                logger.debug(f"Parse error: {e}")
+        return packets, buffer
 
     def disconnect(self):
         """Disconnect from ESP32."""
@@ -247,53 +290,31 @@ class ESP32Serial:
                     continue
 
                 # Check for data timeout (possible disconnect)
-                if time.time() - self._last_data_time > 10.0:
-                    logger.warning("No data received for 10s, checking connection...")
+                if time.time() - self._last_data_time > self.DATA_TIMEOUT:
+                    logger.warning(f"No data received for {self.DATA_TIMEOUT}s, checking connection...")
                     if not self._check_connection():
                         continue
 
-                # Non-blocking read: check if data is available first
-                try:
-                    waiting = self._serial.in_waiting
-                except (serial.SerialException, OSError) as e:
-                    logger.error(f"Port error: {e}")
-                    self._set_state(ConnectionState.ERROR)
+                # Non-blocking read
+                data = self._read_available_data()
+                if data is None:
+                    # Error occurred
                     if self.auto_reconnect:
                         self._try_reconnect()
                     continue
-
-                if waiting == 0:
+                if not data:
                     # No data available, wait briefly and check shutdown flag
-                    if self._stop_event.wait(timeout=0.05):
+                    if self._stop_event.wait(timeout=self.POLL_INTERVAL):
                         break
                     continue
 
-                # Read available data
-                try:
-                    data = self._serial.read(waiting)
-                    if not data:
-                        continue
-                    buffer += data
-                except serial.SerialException as e:
-                    logger.error(f"Read error: {e}")
-                    self._set_state(ConnectionState.ERROR)
-                    if self.auto_reconnect:
-                        self._try_reconnect()
-                    continue
-
+                buffer += data
                 self._last_data_time = time.time()
 
                 # Process complete lines from buffer
-                while b'\n' in buffer:
-                    line, buffer = buffer.split(b'\n', 1)
-                    try:
-                        decoded = line.decode('utf-8', errors='ignore').strip()
-                        if decoded and "CSI_DATA" in decoded:
-                            packet = self._parse_csi_line(decoded)
-                            if packet:
-                                self._notify_csi(packet)
-                    except Exception as e:
-                        logger.debug(f"Parse error: {e}")
+                packets, buffer = self._process_buffer(buffer)
+                for packet in packets:
+                    self._notify_csi(packet)
 
             except Exception as e:
                 logger.error(f"Read loop error: {e}")
@@ -339,20 +360,24 @@ class ESP32Serial:
                 return None
 
             csv_part = line[idx:]
-            parts = csv_part.split(',')
 
-            if len(parts) < 25:
+            # Extract JSON data first (it contains commas, so split carefully)
+            json_start = csv_part.find('"[')
+            if json_start < 0:
                 return None
 
-            # Extract JSON data
-            json_str = parts[-1].strip()
-            if json_str.startswith('"'):
-                json_str = json_str[1:]
-            if json_str.endswith('"'):
-                json_str = json_str[:-1]
-
+            json_str = csv_part[json_start + 1:-1]  # Remove surrounding quotes
             csi_raw = json.loads(json_str)
-            csi_len = int(parts[-3])
+
+            # Split the non-JSON part
+            # Format: CSI_DATA,seq,mac,rssi,...,len,first_word,"[json]"
+            header_part = csv_part[:json_start]
+            parts = header_part.rstrip(',').split(',')
+
+            if len(parts) < 23:
+                return None
+
+            csi_len = int(parts[-2])  # len is 2nd to last before JSON
 
             if len(csi_raw) != csi_len:
                 return None
@@ -409,30 +434,23 @@ class ESP32Serial:
 
         start = time.time()
         buffer = b""
-        poll_interval = 0.05  # 50ms polling for responsive interruption
 
         while time.time() - start < timeout:
             try:
-                # Check if data is available (non-blocking)
-                waiting = self._serial.in_waiting
-                if waiting == 0:
-                    time.sleep(poll_interval)
+                data = self._read_available_data()
+                if data is None:
+                    # Error occurred
+                    return None
+                if not data:
+                    # No data available
+                    time.sleep(self.POLL_INTERVAL)
                     continue
 
-                # Read available data
-                data = self._serial.read(waiting)
-                if data:
-                    buffer += data
+                buffer += data
+                packets, buffer = self._process_buffer(buffer)
+                if packets:
+                    return packets[0]
 
-                # Process complete lines
-                while b'\n' in buffer:
-                    line, buffer = buffer.split(b'\n', 1)
-                    decoded = line.decode('utf-8', errors='ignore').strip()
-                    if "CSI_DATA" in decoded:
-                        return self._parse_csi_line(decoded)
-
-            except (serial.SerialException, OSError):
-                return None
             except Exception:
                 pass
 
@@ -448,106 +466,8 @@ class ESP32Serial:
                 logger.warning(f"Flush error: {e}")
 
 
-class CSICollector:
-    """
-    High-level CSI data collector with automatic saving.
-    """
-
-    def __init__(
-        self,
-        esp32: ESP32Serial,
-        output_dir: str = "data/csi",
-        samples_per_file: int = 100,
-    ):
-        self.esp32 = esp32
-        self.output_dir = output_dir
-        self.samples_per_file = samples_per_file
-
-        self._buffer: List[CSIPacket] = []
-        self._file_count = 0
-        self._total_packets = 0
-        self._collecting = False
-        self._metadata: Dict[str, Any] = {}
-
-        # Register callback
-        self.esp32.add_csi_callback(self._on_csi_packet)
-
-    def start_collection(self, metadata: Optional[Dict[str, Any]] = None):
-        """Start collecting CSI data."""
-        import os
-        os.makedirs(self.output_dir, exist_ok=True)
-
-        self._buffer = []
-        self._file_count = 0
-        self._total_packets = 0
-        self._metadata = metadata or {}
-        self._collecting = True
-
-        if not self.esp32.is_connected:
-            self.esp32.connect()
-        self.esp32.start()
-
-    def stop_collection(self) -> Dict[str, Any]:
-        """Stop collecting and return stats."""
-        self._collecting = False
-        self.esp32.stop()
-
-        # Save remaining buffer
-        if self._buffer:
-            self._save_buffer()
-
-        return {
-            "files_saved": self._file_count,
-            "total_packets": self._total_packets,
-            "output_dir": self.output_dir,
-        }
-
-    def _on_csi_packet(self, packet: CSIPacket):
-        """Handle incoming CSI packet."""
-        if not self._collecting:
-            return
-
-        self._buffer.append(packet)
-        self._total_packets += 1
-
-        if len(self._buffer) >= self.samples_per_file:
-            self._save_buffer()
-
-    def _save_buffer(self):
-        """Save current buffer to file."""
-        import numpy as np
-        from datetime import datetime
-
-        if not self._buffer:
-            return
-
-        # Convert to numpy array
-        data = np.array([p.csi_data for p in self._buffer])
-        data = np.transpose(data, (1, 0))
-        data = np.expand_dims(data, axis=0)
-
-        # Generate filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"csi_{timestamp}_{self._file_count:04d}.npy"
-        filepath = f"{self.output_dir}/{filename}"
-
-        np.save(filepath, data)
-
-        # Save metadata
-        meta = {
-            **self._metadata,
-            "file_index": self._file_count,
-            "samples": len(self._buffer),
-            "timestamp": datetime.now().isoformat(),
-        }
-        meta_path = filepath.replace(".npy", ".json")
-        with open(meta_path, 'w') as f:
-            json.dump(meta, f, indent=2)
-
-        logger.info(f"Saved: {filename} ({len(self._buffer)} samples)")
-
-        self._buffer = []
-        self._file_count += 1
+# Note: For data collection, use scripts/collect_crowd.py instead of CSICollector
+# The CrowdDataCollector class provides more complete functionality
 
 
 def test_connection(port: Optional[str] = None, timeout: float = 10.0) -> bool:
