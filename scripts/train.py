@@ -144,8 +144,33 @@ def parse_args():
     return parser.parse_args()
 
 
+def validate_args(args):
+    """Validate command line arguments."""
+    # Check for incomplete file list specification
+    if args.train_file_list and not args.val_file_list:
+        print("Error: --train_file_list requires --val_file_list")
+        sys.exit(1)
+    if args.val_file_list and not args.train_file_list:
+        print("Error: --val_file_list requires --train_file_list")
+        sys.exit(1)
+
+    # Check file existence
+    if args.train_file_list and not os.path.exists(args.train_file_list):
+        print(f"Error: Training file list not found: {args.train_file_list}")
+        sys.exit(1)
+    if args.val_file_list and not os.path.exists(args.val_file_list):
+        print(f"Error: Validation file list not found: {args.val_file_list}")
+        sys.exit(1)
+    if args.data_dir and not os.path.isdir(args.data_dir):
+        print(f"Error: Data directory not found: {args.data_dir}")
+        sys.exit(1)
+
+
 def main():
     args = parse_args()
+
+    # Validate arguments
+    validate_args(args)
 
     # Set random seed
     torch.manual_seed(args.seed)

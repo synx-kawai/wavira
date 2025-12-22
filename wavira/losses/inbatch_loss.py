@@ -100,11 +100,14 @@ class InBatchNegativeLoss(nn.Module):
             # Average over samples that have positives
             loss = -positive_log_prob[has_positives].mean()
         else:
-            # Fallback: use self-supervised contrastive loss
-            # Each sample is its own class, maximize self-similarity
-            # This creates a gradient-enabled zero-like loss
-            log_prob = F.log_softmax(similarity + eye_mask * 1e9, dim=1)
-            loss = -log_prob.diag().mean() * 0.0 + signatures.sum() * 0.0
+            # Fallback: self-supervised contrastive loss (InfoNCE-style)
+            # When no positive pairs exist, use uniformity loss to spread embeddings
+            # This encourages the model to produce diverse representations
+            similarity_for_uniformity = torch.mm(signatures, signatures.t())
+            # Exclude self-similarity
+            similarity_for_uniformity = similarity_for_uniformity - eye_mask * 1e9
+            # Uniformity loss: penalize high similarity between different samples
+            loss = torch.logsumexp(similarity_for_uniformity / self.temperature, dim=1).mean()
 
         if self.symmetric:
             # Compute symmetric loss (transpose similarity matrix)

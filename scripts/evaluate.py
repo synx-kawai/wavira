@@ -75,6 +75,8 @@ def main():
     device = torch.device(args.device)
 
     # Load checkpoint
+    # SECURITY NOTE: weights_only=False allows arbitrary code execution.
+    # Only load checkpoints from trusted sources.
     print(f"Loading checkpoint from {args.checkpoint}")
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
 

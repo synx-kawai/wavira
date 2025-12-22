@@ -6,12 +6,15 @@ Wi-Fi Channel State Information data for person re-identification.
 """
 
 import os
+import logging
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 from typing import Optional, Tuple, List, Dict, Any, Callable
 
 from wavira.data.preprocessing import preprocess_csi, normalize_csi
+
+logger = logging.getLogger(__name__)
 
 
 class CSIDataset(Dataset):
@@ -124,15 +127,18 @@ class CSIDataset(Dataset):
         """
         data = []
         labels = []
+        missing_files = []
 
         # Read file list
         with open(file_list_path, 'r') as f:
             file_paths = [line.strip() for line in f if line.strip()]
 
+        logger.info(f"Loading {len(file_paths)} files from {file_list_path}")
+
         # Load files and assign labels based on index
         for idx, file_path in enumerate(file_paths):
             if not os.path.exists(file_path):
-                print(f"Warning: File not found: {file_path}")
+                missing_files.append(file_path)
                 continue
 
             sample_data = np.load(file_path)
@@ -141,6 +147,15 @@ class CSIDataset(Dataset):
             # Assign label based on file index
             label = idx // self.samples_per_class
             labels.append(label)
+
+        # Log summary of missing files
+        if missing_files:
+            logger.warning(
+                f"Skipped {len(missing_files)} missing files. "
+                f"First few: {missing_files[:3]}"
+            )
+
+        logger.info(f"Successfully loaded {len(data)} samples")
 
         return data, np.array(labels)
 
