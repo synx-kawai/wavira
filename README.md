@@ -239,6 +239,145 @@ Run unit tests:
 pytest tests/ -v
 ```
 
+## Crowd Level Estimation
+
+Wavira also supports crowd level estimation using CSI signals. This feature enables non-visual monitoring of room occupancy.
+
+### Crowd Levels
+
+| Level | Status | People |
+|-------|--------|--------|
+| 0 | Empty | 0-1 |
+| 1 | Moderate | 2-5 |
+| 2 | Crowded | 6+ |
+
+### Hardware Setup
+
+#### Requirements
+
+- ESP32 with CSI support (ESP32-WROOM, ESP32-S3, etc.)
+- USB cable for serial connection
+- Wi-Fi access point (router)
+
+#### ESP32 Setup
+
+1. Clone the ESP-CSI repository:
+```bash
+cd esp-csi/examples/get-started/csi_recv
+idf.py set-target esp32  # or esp32s3
+idf.py build
+idf.py flash monitor
+```
+
+2. Configure Wi-Fi credentials in `menuconfig`:
+```bash
+idf.py menuconfig
+# Navigate to: Example Configuration → WiFi SSID/Password
+```
+
+3. Place ESP32 on desk with clear line of sight to the monitored area.
+
+### Data Collection
+
+#### Quick Start
+
+```bash
+# Collect "empty" level data (0-1 people in room)
+python scripts/collect_crowd.py --level 0 --location office
+
+# Collect "moderate" level data (2-5 people)
+python scripts/collect_crowd.py --level 1 --location office
+
+# Collect "crowded" level data (6+ people)
+python scripts/collect_crowd.py --level 2 --location office
+```
+
+#### Collection Parameters
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-l, --level` | (required) | Crowd level (0, 1, 2) |
+| `--location` | room1 | Location identifier |
+| `-n, --num-files` | 10 | Number of files to collect |
+| `-s, --samples` | 100 | CSI packets per file |
+| `-p, --port` | /dev/cu.usbserial-* | Serial port |
+| `-t, --timeout` | 300 | Timeout in seconds |
+
+#### Data Collection Procedure
+
+1. **Prepare the environment**
+   - Set up ESP32 in the target location
+   - Ensure stable Wi-Fi connection
+   - Verify serial port: `ls /dev/cu.usb*`
+
+2. **Collect Level 0 (Empty)**
+   ```bash
+   # Clear the room (0-1 people)
+   python scripts/collect_crowd.py --level 0 --location office --num-files 20
+   ```
+
+3. **Collect Level 1 (Moderate)**
+   ```bash
+   # Have 2-5 people in the room, moving naturally
+   python scripts/collect_crowd.py --level 1 --location office --num-files 20
+   ```
+
+4. **Collect Level 2 (Crowded)**
+   ```bash
+   # Have 6+ people in the room
+   python scripts/collect_crowd.py --level 2 --location office --num-files 20
+   ```
+
+5. **Tips for quality data**
+   - People should move naturally during collection
+   - Collect multiple sessions at different times of day
+   - Keep ESP32 position consistent
+   - Avoid major furniture changes during collection
+
+#### Output Structure
+
+```
+data/crowd/
+└── office/
+    ├── empty/
+    │   ├── 20241222_143000_0000.npy   # CSI data
+    │   ├── 20241222_143000_0000.json  # Metadata
+    │   └── ...
+    ├── moderate/
+    │   └── ...
+    └── crowded/
+        └── ...
+```
+
+#### Metadata Format
+
+Each `.json` file contains:
+```json
+{
+  "level": 0,
+  "level_name": "empty",
+  "location": "office",
+  "session_id": "20241222_143000",
+  "file_index": 0,
+  "samples": 100,
+  "timestamp": "2024-12-22T14:30:05"
+}
+```
+
+### Training (Coming Soon)
+
+```bash
+# Train crowd level classifier
+python scripts/train_crowd.py --data_dir data/crowd --epochs 100
+```
+
+### Real-time Inference (Coming Soon)
+
+```bash
+# Start real-time crowd monitoring
+python scripts/monitor_crowd.py --model checkpoints/crowd_model.pt
+```
+
 ## NTU-Fi Dataset
 
 The [NTU-Fi dataset](https://github.com/xyanchen/WiFi-CSI-Sensing-Benchmark) contains:
