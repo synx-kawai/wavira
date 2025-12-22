@@ -2,6 +2,75 @@
 
 ESP32のシリアル接続とCSIデータ収集を支援するスキルです。
 
+## CRITICAL: シリアルポートアクセス時の必須ルール
+
+**フリーズ防止のため、以下のルールを必ず守ること：**
+
+### 1. 実行前にポートロックを確認
+
+```bash
+# シリアルポートを使用する前に必ず確認
+lsof /dev/cu.usbserial-* 2>/dev/null || echo "Port available"
+```
+
+ポートがロックされている場合は解放してから実行：
+```bash
+# ロックしているプロセスを強制終了
+kill -9 <PID>
+```
+
+### 2. timeout コマンドで必ずラップ
+
+シリアルポートにアクセスするPythonコードは必ず `timeout` でラップする：
+
+```bash
+# 良い例: timeoutでラップ
+timeout 15 python3 -c "
+import serial
+# ... シリアル処理 ...
+"
+
+# 悪い例: timeoutなし（フリーズの原因）
+python3 -c "
+import serial
+# ... シリアル処理 ...
+"
+```
+
+### 3. CSIデータ取得の推奨パターン
+
+```bash
+# ポート確認 → timeout付き実行
+lsof /dev/cu.usbserial-* 2>/dev/null && echo "WARNING: Port locked" || \
+timeout 15 python3 -c "
+import serial
+import time
+
+with serial.Serial('/dev/cu.usbserial-XXXX', 115200, timeout=0.1) as s:
+    s.reset_input_buffer()
+    start = time.time()
+    count = 0
+    while time.time() - start < 10 and count < 5:
+        if s.in_waiting:
+            line = s.readline()
+            decoded = line.decode('utf-8', errors='ignore').strip()
+            if 'CSI_DATA' in decoded:
+                parts = decoded.split(',')
+                print(f'RSSI={parts[3]}dBm')
+                count += 1
+        else:
+            time.sleep(0.01)
+"
+```
+
+### 4. フリーズの根本原因と対策
+
+| 原因 | 症状 | 対策 |
+|-----|------|------|
+| ファイルディスクリプタがnodeプロセスに継承 | ポートがロックされたまま | `timeout` でラップ |
+| readline()のブロッキング | Ctrl+Cが効かない | `in_waiting` で確認後に読み取り |
+| プロセス終了時にポートが解放されない | 次のコマンドが接続待ちでハング | 実行前に `lsof` で確認 |
+
 ## 使用方法
 
 このスキルは以下のタスクをサポートします：
