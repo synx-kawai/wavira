@@ -8,6 +8,7 @@ Wi-Fi Channel State Information data for person re-identification.
 import os
 import logging
 import numpy as np
+import h5py
 import torch
 from torch.utils.data import Dataset
 from typing import Optional, Tuple, List, Dict, Any, Callable

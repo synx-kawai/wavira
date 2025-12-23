@@ -1096,6 +1096,10 @@ function displayHourlySummary(data) {
         return;
     }
 
+    // Get selected period
+    const selectedPeriod = parseInt(document.getElementById('hourlyPeriod').value);
+    const currentHour = new Date().getHours();
+
     // Group by hour
     const hourlyData = {};
     for (const row of data) {
@@ -1106,12 +1110,17 @@ function displayHourlySummary(data) {
         hourlyData[hour].push(row.avg_crowd_level * 100);
     }
 
-    // Calculate average and max per hour
+    // Calculate which hours to display based on selected period
     const hours = [];
     const avgValues = [];
     const maxValues = [];
 
-    for (let h = 0; h < 24; h++) {
+    // For periods <= 24 hours, show only relevant hours from current time backwards
+    // For periods > 24 hours (168h = 1 week), show all 24 hours
+    const hoursToShow = selectedPeriod <= 24 ? selectedPeriod : 24;
+
+    for (let i = hoursToShow - 1; i >= 0; i--) {
+        let h = (currentHour - i + 24) % 24;
         const hourStr = h.toString().padStart(2, '0') + ':00';
         hours.push(hourStr);
 

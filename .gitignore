@@ -11,6 +11,9 @@ __pycache__/
 
 # Model checkpoints
 checkpoints/
+runs/
+wavira.egg-info/
+.venv/
 
 # ESP-IDF build files (use firmware/esp32_csi_firmware.bin instead)
 esp-csi/**/build/
