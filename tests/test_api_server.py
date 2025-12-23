@@ -407,6 +407,35 @@ class TestRateLimiter:
         # デバイスのエントリがまだ存在することを確認（時間経過が短いため）
         assert "device-1" in limiter.states
 
+    @pytest.mark.asyncio
+    async def test_rate_limiter_max_entries_protection(self):
+        """最大エントリ数に達した場合、新規デバイスは拒否される（メモリ枯渇防止）"""
+        limiter = RateLimiter(max_requests_per_second=10)
+
+        # MAX_DEVICE_ENTRIES を一時的に小さい値に設定してテスト
+        original_max = limiter.MAX_DEVICE_ENTRIES
+        limiter.MAX_DEVICE_ENTRIES = 3
+
+        try:
+            # 3つのデバイスを登録
+            result1 = await limiter.check("device-1")
+            result2 = await limiter.check("device-2")
+            result3 = await limiter.check("device-3")
+            assert result1 is True
+            assert result2 is True
+            assert result3 is True
+
+            # 4つ目のデバイスは拒否される
+            result4 = await limiter.check("device-4")
+            assert result4 is False
+
+            # 既存のデバイスはまだアクセス可能
+            result1_again = await limiter.check("device-1")
+            assert result1_again is True
+        finally:
+            # 元の値に戻す
+            limiter.MAX_DEVICE_ENTRIES = original_max
+
 
 # =============================================================================
 # Device Manager Tests

@@ -141,6 +141,9 @@ class RateLimitState:
 class RateLimiter:
     """デバイスごとのレート制限"""
 
+    # メモリ枯渇防止のための最大エントリ数（認証なしモードでの攻撃対策）
+    MAX_DEVICE_ENTRIES = 10000
+
     def __init__(self, max_requests_per_second: int = 100):
         self.max_requests = max_requests_per_second
         self.states: Dict[str, RateLimitState] = defaultdict(
@@ -151,6 +154,14 @@ class RateLimiter:
     async def check(self, device_id: str) -> bool:
         """レート制限をチェック。制限内ならTrue、超過ならFalse"""
         async with self._lock:
+            # メモリ枯渇防止: エントリ数が上限に達した場合、新規デバイスは拒否
+            if device_id not in self.states and len(self.states) >= self.MAX_DEVICE_ENTRIES:
+                logger.warning(
+                    f"Rate limiter max entries ({self.MAX_DEVICE_ENTRIES}) reached. "
+                    f"Rejecting new device: {device_id}"
+                )
+                return False
+
             state = self.states[device_id]
             now = time.time()
 
@@ -304,7 +315,13 @@ class AppState:
                 await self._cleanup_task
             except asyncio.CancelledError:
                 pass
-        self.recorder.close()
+
+        # データベース接続を安全にクローズ
+        try:
+            self.recorder.close()
+            logger.info("Database connection closed successfully")
+        except Exception as e:
+            logger.error(f"Error closing database connection: {e}")
 
     async def _cleanup_loop(self):
         """定期的なクリーンアップ"""
@@ -331,6 +348,18 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         """アプリケーションのライフサイクル管理"""
         logger.info("Starting API server...")
+
+        # セキュリティ警告: 認証が無効な場合
+        if not config.api_keys:
+            logger.critical(
+                "=" * 60 + "\n"
+                "⚠️  SECURITY WARNING: API authentication is DISABLED!\n"
+                "Any client can send data to this server without authentication.\n"
+                "This is acceptable for development/testing but NOT for production.\n"
+                "To enable authentication, set api_keys in config.yaml or use --api-key.\n"
+                + "=" * 60
+            )
+
         await app_state.start()
         yield
         logger.info("Shutting down API server...")
@@ -660,6 +689,16 @@ def main():
     print(f"Auth: {'Enabled' if config.api_keys else 'Disabled'}")
     print(f"Rate Limit: {config.rate_limit_per_second} req/s per device")
     print("=" * 60)
+
+    # セキュリティ警告を表示
+    if not config.api_keys:
+        print("\n" + "!" * 60)
+        print("⚠️  WARNING: Authentication is DISABLED!")
+        print("   This server is accepting unauthenticated requests.")
+        print("   For production use, enable authentication with:")
+        print("   --api-key YOUR_SECRET_KEY")
+        print("   or set api_keys in config.yaml")
+        print("!" * 60 + "\n")
 
     app = create_app(config)
 
