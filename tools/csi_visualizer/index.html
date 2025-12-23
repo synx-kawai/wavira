@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>CSI Breathing Monitor</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a1a; color: #0f0; font: 12px 'Courier New', monospace; }
+.container { display: flex; flex-direction: column; height: 100vh; padding: 10px; gap: 10px; }
+.header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 15px; background: #111; border: 1px solid #333;
+}
+.title { font-size: 18px; font-weight: bold; }
+.status { display: flex; gap: 20px; }
+.status-item { display: flex; align-items: center; gap: 5px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #f00; }
+.dot.on { background: #0f0; }
+.main { display: flex; flex: 1; gap: 10px; min-height: 0; }
+.plot-area { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.plot-container {
+    flex: 1; position: relative; background: #0a0a0a;
+    border: 1px solid #333; min-height: 200px;
+}
+.plot-title {
+    position: absolute; top: 5px; left: 10px;
+    font-size: 11px; color: #666;
+}
+.y-axis {
+    position: absolute; left: 5px; top: 30px; bottom: 30px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    font-size: 10px; color: #666; width: 35px; text-align: right;
+}
+.x-axis {
+    position: absolute; left: 45px; right: 10px; bottom: 5px;
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: #666;
+}
+canvas { position: absolute; top: 25px; left: 45px; right: 10px; bottom: 25px; }
+.sidebar { width: 220px; display: flex; flex-direction: column; gap: 10px; }
+.panel { background: #111; border: 1px solid #333; padding: 10px; }
+.panel-title { font-size: 11px; color: #666; border-bottom: 1px solid #333; padding-bottom: 5px; margin-bottom: 8px; }
+.row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
+.label { color: #666; }
+.value { color: #0f0; }
+
+/* Breathing Monitor */
+.breath-panel { background: #111; border: 2px solid #333; padding: 15px; }
+.breath-panel.holding { border-color: #f00; background: #1a0000; }
+.breath-panel.breathing { border-color: #0f0; }
+.breath-status {
+    font-size: 24px; font-weight: bold; text-align: center;
+    padding: 10px; margin-bottom: 10px;
+}
+.breath-status.breathing { color: #0f0; }
+.breath-status.holding { color: #f00; animation: pulse 0.5s infinite; }
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+.breath-meter {
+    height: 20px; background: #222; border: 1px solid #444;
+    margin: 10px 0; position: relative; overflow: hidden;
+}
+.breath-meter-fill {
+    height: 100%; background: linear-gradient(90deg, #0a0, #0f0);
+    transition: width 0.3s;
+}
+.breath-meter-threshold {
+    position: absolute; top: 0; bottom: 0; width: 2px;
+    background: #f00; left: 10%;
+}
+.breath-info { display: flex; justify-content: space-between; font-size: 14px; }
+.hold-timer {
+    font-size: 36px; font-weight: bold; text-align: center;
+    color: #f00; padding: 10px; display: none;
+}
+.breath-panel.holding .hold-timer { display: block; }
+
+.history-container { position: relative; height: 100px; background: #0a0a0a; border: 1px solid #333; }
+#histCanvas { position: absolute; top: 15px; left: 30px; right: 5px; bottom: 15px; }
+.hist-y { position: absolute; left: 3px; top: 15px; bottom: 15px; display: flex; flex-direction: column; justify-content: space-between; font-size: 9px; color: #666; }
+.hist-title { position: absolute; top: 2px; left: 5px; font-size: 10px; color: #666; }
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div class="title">CSI Breathing Monitor</div>
+        <div class="status">
+            <div class="status-item">
+                <div class="dot" id="dot"></div>
+                <span id="connStatus">Disconnected</span>
+            </div>
+            <div class="status-item">PKT: <span id="pktNum">0</span></div>
+            <div class="status-item">FPS: <span id="fpsVal">0</span></div>
+        </div>
+    </div>
+    <div class="main">
+        <div class="plot-area">
+            <div class="plot-container">
+                <div class="plot-title">CSI Amplitude</div>
+                <div class="y-axis" id="yAxis"></div>
+                <div class="x-axis" id="xAxis"></div>
+                <canvas id="mainCanvas"></canvas>
+            </div>
+            <div class="history-container">
+                <div class="hist-title">Amplitude History</div>
+                <div class="hist-y" id="histY"></div>
+                <canvas id="histCanvas"></canvas>
+            </div>
+        </div>
+        <div class="sidebar">
+            <!-- Breathing Panel -->
+            <div class="breath-panel" id="breathPanel">
+                <div class="panel-title">Breathing Detection</div>
+                <div class="breath-status" id="breathStatus">--</div>
+                <div class="hold-timer" id="holdTimer">0.0s</div>
+                <div class="breath-meter">
+                    <div class="breath-meter-fill" id="breathMeter"></div>
+                    <div class="breath-meter-threshold"></div>
+                </div>
+                <div class="breath-info">
+                    <span>Power: <span id="breathPower">--%</span></span>
+                    <span>Rate: <span id="breathRate">--</span>/min</span>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">Signal Info</div>
+                <div class="row"><span class="label">RSSI</span><span class="value" id="rssi">-- dBm</span></div>
+                <div class="row"><span class="label">Channel</span><span class="value" id="channel">--</span></div>
+                <div class="row"><span class="label">Subcarriers</span><span class="value" id="subcarriers">--</span></div>
+                <div class="row"><span class="label">Avg Amp</span><span class="value" id="avgAmp">--</span></div>
+                <div class="row"><span class="label">Max Amp</span><span class="value" id="maxAmp">--</span></div>
+            </div>
+            <div class="panel">
+                <div class="panel-title">Controls</div>
+                <div class="row">
+                    <span class="label">Gain</span>
+                    <input type="range" id="gain" min="0.5" max="3" step="0.1" value="1" style="width:80px">
+                    <span class="value" id="gainVal">1.0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const mainCanvas = document.getElementById('mainCanvas');
+const histCanvas = document.getElementById('histCanvas');
+const mainCtx = mainCanvas.getContext('2d', {alpha: false});
+const histCtx = histCanvas.getContext('2d', {alpha: false});
+
+let data = null;
+let dataVersion = 0;
+let lastDrawnVersion = -1;
+
+const MAX_HIST = 100;
+const history = new Float32Array(MAX_HIST);
+let histHead = 0;
+let histCount = 0;
+
+let gain = 1.0;
+let frameCount = 0;
+let lastFpsTime = performance.now();
+let maxAmpGlobal = 100;
+let lastDomUpdate = 0;
+
+// Resize canvases
+function resize() {
+    const mainRect = mainCanvas.parentElement.getBoundingClientRect();
+    mainCanvas.width = mainRect.width - 55;
+    mainCanvas.height = mainRect.height - 50;
+
+    const histRect = histCanvas.parentElement.getBoundingClientRect();
+    histCanvas.width = histRect.width - 35;
+    histCanvas.height = histRect.height - 30;
+
+    updateAxisLabels();
+}
+
+function updateAxisLabels() {
+    const yAxis = document.getElementById('yAxis');
+    yAxis.innerHTML = '';
+    for (let i = 0; i <= 4; i++) {
+        const val = Math.round(maxAmpGlobal * (1 - i/4));
+        const div = document.createElement('div');
+        div.textContent = val;
+        yAxis.appendChild(div);
+    }
+
+    const xAxis = document.getElementById('xAxis');
+    const numSub = data ? data.amps.length : 64;
+    xAxis.innerHTML = `<span>0</span><span>${Math.round(numSub/4)}</span><span>${Math.round(numSub/2)}</span><span>${Math.round(numSub*3/4)}</span><span>${numSub}</span>`;
+
+    const histY = document.getElementById('histY');
+    histY.innerHTML = `<span>${Math.round(maxAmpGlobal)}</span><span>${Math.round(maxAmpGlobal/2)}</span><span>0</span>`;
+}
+
+window.onresize = resize;
+resize();
+
+// WebSocket
+function connect() {
+    const ws = new WebSocket('ws://localhost:8765');
+
+    ws.onopen = () => {
+        document.getElementById('dot').classList.add('on');
+        document.getElementById('connStatus').textContent = 'Connected';
+    };
+
+    ws.onclose = () => {
+        document.getElementById('dot').classList.remove('on');
+        document.getElementById('connStatus').textContent = 'Reconnecting...';
+        setTimeout(connect, 2000);
+    };
+
+    ws.onmessage = (e) => {
+        try {
+            const d = JSON.parse(e.data);
+            if (d.amps) {
+                data = d;
+                dataVersion++;
+
+                // Update breathing display
+                if (d.breath) {
+                    updateBreathingDisplay(d.breath);
+                }
+            }
+        } catch {}
+    };
+}
+connect();
+
+// Breathing display update
+function updateBreathingDisplay(breath) {
+    const panel = document.getElementById('breathPanel');
+    const status = document.getElementById('breathStatus');
+    const meter = document.getElementById('breathMeter');
+    const power = document.getElementById('breathPower');
+    const rate = document.getElementById('breathRate');
+    const timer = document.getElementById('holdTimer');
+
+    const ratio = breath.breath_ratio || 0;
+    const isBreathing = breath.breathing;
+    const holdDuration = breath.hold_duration || 0;
+    const breathRate = breath.breath_rate || 0;
+
+    // Update panel class
+    panel.className = 'breath-panel ' + (isBreathing ? 'breathing' : 'holding');
+
+    // Update status text
+    if (isBreathing) {
+        status.textContent = 'BREATHING';
+        status.className = 'breath-status breathing';
+    } else {
+        status.textContent = 'HOLDING';
+        status.className = 'breath-status holding';
+    }
+
+    // Update meter
+    meter.style.width = Math.min(ratio * 100, 100) + '%';
+
+    // Update values
+    power.textContent = (ratio * 100).toFixed(1) + '%';
+    rate.textContent = breathRate > 0 ? breathRate : '--';
+
+    // Update hold timer
+    if (!isBreathing && holdDuration > 0) {
+        timer.textContent = holdDuration.toFixed(1) + 's';
+    }
+}
+
+// Gain control
+document.getElementById('gain').oninput = (e) => {
+    gain = parseFloat(e.target.value);
+    document.getElementById('gainVal').textContent = gain.toFixed(1);
+};
+
+// Draw - throttled to 15 FPS max
+let lastDrawTime = 0;
+const DRAW_INTERVAL = 66; // 66ms = 15 FPS
+
+function draw() {
+    requestAnimationFrame(draw);
+
+    const now = performance.now();
+
+    // Throttle drawing
+    if (now - lastDrawTime < DRAW_INTERVAL) return;
+
+    if (!data || !data.amps || dataVersion === lastDrawnVersion) return;
+    lastDrawnVersion = dataVersion;
+    lastDrawTime = now;
+
+    // Count actual draws
+    frameCount++;
+    if (now - lastFpsTime >= 1000) {
+        document.getElementById('fpsVal').textContent = frameCount;
+        frameCount = 0;
+        lastFpsTime = now;
+    }
+
+    const amps = data.amps;
+    const len = amps.length;
+
+    let sum = 0, max = 0;
+    for (let i = 0; i < len; i++) {
+        sum += amps[i];
+        if (amps[i] > max) max = amps[i];
+    }
+    const avg = sum / len;
+
+    maxAmpGlobal = maxAmpGlobal * 0.95 + max * 0.05;
+    if (max > maxAmpGlobal) maxAmpGlobal = max;
+
+    history[histHead] = avg;
+    histHead = (histHead + 1) % MAX_HIST;
+    if (histCount < MAX_HIST) histCount++;
+
+    if (now - lastDomUpdate > 500) {
+        document.getElementById('pktNum').textContent = data.pkt;
+        document.getElementById('rssi').textContent = data.rssi + ' dBm';
+        document.getElementById('channel').textContent = data.ch;
+        document.getElementById('subcarriers').textContent = len;
+        document.getElementById('avgAmp').textContent = avg.toFixed(1);
+        document.getElementById('maxAmp').textContent = max.toFixed(1);
+        updateAxisLabels();
+        lastDomUpdate = now;
+    }
+
+    drawMain(amps);
+    drawHistory();
+}
+
+function drawMain(amps) {
+    const w = mainCanvas.width;
+    const h = mainCanvas.height;
+
+    mainCtx.fillStyle = '#0a0a0a';
+    mainCtx.fillRect(0, 0, w, h);
+
+    mainCtx.strokeStyle = '#222';
+    mainCtx.lineWidth = 1;
+    for (let i = 1; i < 10; i++) {
+        const x = (w / 10) * i;
+        mainCtx.beginPath();
+        mainCtx.moveTo(x, 0);
+        mainCtx.lineTo(x, h);
+        mainCtx.stroke();
+    }
+    for (let i = 1; i < 5; i++) {
+        const y = (h / 5) * i;
+        mainCtx.beginPath();
+        mainCtx.moveTo(0, y);
+        mainCtx.lineTo(w, y);
+        mainCtx.stroke();
+    }
+
+    mainCtx.strokeStyle = '#444';
+    mainCtx.beginPath();
+    mainCtx.moveTo(0, h);
+    mainCtx.lineTo(w, h);
+    mainCtx.stroke();
+
+    const scale = (h / maxAmpGlobal) * gain;
+
+    // Color based on breathing status
+    const isHolding = data.breath && !data.breath.breathing;
+    mainCtx.strokeStyle = isHolding ? '#f00' : '#0f0';
+    mainCtx.lineWidth = 1.5;
+    mainCtx.beginPath();
+
+    for (let i = 0; i < amps.length; i++) {
+        const x = (i / (amps.length - 1)) * w;
+        const y = h - amps[i] * scale;
+        if (i === 0) mainCtx.moveTo(x, y);
+        else mainCtx.lineTo(x, y);
+    }
+    mainCtx.stroke();
+}
+
+function drawHistory() {
+    const w = histCanvas.width;
+    const h = histCanvas.height;
+
+    histCtx.fillStyle = '#0a0a0a';
+    histCtx.fillRect(0, 0, w, h);
+
+    if (histCount < 2) return;
+
+    histCtx.strokeStyle = '#222';
+    histCtx.lineWidth = 1;
+    histCtx.beginPath();
+    histCtx.moveTo(0, h/2);
+    histCtx.lineTo(w, h/2);
+    histCtx.stroke();
+
+    const scale = h / maxAmpGlobal;
+
+    const isHolding = data && data.breath && !data.breath.breathing;
+    histCtx.strokeStyle = isHolding ? '#f00' : '#0f0';
+    histCtx.lineWidth = 1;
+    histCtx.beginPath();
+
+    for (let i = 0; i < histCount; i++) {
+        const idx = (histHead - histCount + i + MAX_HIST) % MAX_HIST;
+        const x = (i / (MAX_HIST - 1)) * w;
+        const y = h - history[idx] * scale;
+        if (i === 0) histCtx.moveTo(x, y);
+        else histCtx.lineTo(x, y);
+    }
+    histCtx.stroke();
+}
+
+draw();
+</script>
+</body>
+</html>
