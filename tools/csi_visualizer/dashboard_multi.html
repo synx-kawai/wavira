@@ -290,6 +290,121 @@ body {
 .alert-banner.visible {
     transform: translateY(0);
 }
+
+/* Signal Graphs Section */
+.signal-section {
+    margin-top: 16px;
+}
+
+.signal-section-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.device-graphs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 16px;
+}
+
+.device-graph-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.device-graph-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.device-graph-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.device-graph-title .indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.device-graph-title .name {
+    font-weight: 600;
+}
+
+.device-graph-stats {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.device-graph-stats .stat-value {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.graph-container {
+    position: relative;
+    height: 120px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.graph-container canvas {
+    width: 100%;
+    height: 100%;
+}
+
+.graph-label {
+    position: absolute;
+    top: 4px;
+    left: 8px;
+    font-size: 10px;
+    color: var(--text-secondary);
+    background: rgba(0,0,0,0.5);
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.graph-legend {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.graph-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.graph-legend-item .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+/* CSI Waveform Mini */
+.csi-waveform {
+    height: 80px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-top: 8px;
+}
 </style>
 </head>
 <body>
@@ -333,6 +448,16 @@ body {
         <!-- Zones will be dynamically added here -->
     </div>
 
+    <!-- Signal Graphs Section -->
+    <div class="signal-section">
+        <div class="signal-section-title">
+            📊 デバイス別電波状況（リアルタイム）
+        </div>
+        <div class="device-graphs-grid" id="deviceGraphsGrid">
+            <!-- Device graphs will be dynamically added here -->
+        </div>
+    </div>
+
     <!-- Floor Map -->
     <div class="floor-map-card">
         <h3 style="margin-bottom: 16px;">フロアマップ</h3>
@@ -343,10 +468,16 @@ body {
 </div>
 
 <script>
+// Constants
+const HISTORY_LENGTH = 120; // 2 minutes at 1 sample/sec
+const GRAPH_UPDATE_INTERVAL = 100; // ms
+
 // State
 let connected = false;
 let devices = {};
 let zones = {};
+let deviceHistory = {}; // { deviceId: { rssi: [], amplitude: [], breathRatio: [], timestamps: [] } }
+let deviceCanvases = {}; // { deviceId: { signal: canvas, waveform: canvas } }
 
 // Connect to WebSocket
 function connect() {
@@ -381,25 +512,25 @@ function connect() {
 
 // Update status from server
 function updateStatus(status) {
-    // Update devices
     if (status.devices) {
         status.devices.forEach(dev => {
-            devices[dev.id] = dev;
+            devices[dev.id] = { ...devices[dev.id], ...dev };
         });
     }
 
-    // Update zones
     if (status.zones) {
         zones = status.zones;
         renderZones();
     }
 
     updateSummary();
+    ensureDeviceGraphCards();
 }
 
 // Update individual device data
 function updateDevice(data) {
     const deviceId = data.device_id;
+    const now = Date.now();
 
     if (!devices[deviceId]) {
         devices[deviceId] = {
@@ -413,8 +544,35 @@ function updateDevice(data) {
 
     devices[deviceId].rssi = data.rssi;
     devices[deviceId].breath = data.breath;
-    devices[deviceId].lastUpdate = Date.now();
+    devices[deviceId].amps = data.amps;
+    devices[deviceId].lastUpdate = now;
     devices[deviceId].connected = true;
+
+    // Store history
+    if (!deviceHistory[deviceId]) {
+        deviceHistory[deviceId] = {
+            rssi: [],
+            amplitude: [],
+            breathRatio: [],
+            timestamps: []
+        };
+    }
+
+    const hist = deviceHistory[deviceId];
+    const avgAmp = data.amps ? data.amps.reduce((a, b) => a + b, 0) / data.amps.length : 0;
+
+    hist.rssi.push(data.rssi || -100);
+    hist.amplitude.push(avgAmp);
+    hist.breathRatio.push((data.breath?.breath_ratio || 0) * 100);
+    hist.timestamps.push(now);
+
+    // Trim old data
+    while (hist.timestamps.length > HISTORY_LENGTH) {
+        hist.rssi.shift();
+        hist.amplitude.shift();
+        hist.breathRatio.shift();
+        hist.timestamps.shift();
+    }
 
     // Update zone presence
     const zoneId = devices[deviceId].zone;
@@ -431,6 +589,209 @@ function updateDevice(data) {
     renderZones();
     updateSummary();
     updateFloorMap();
+    ensureDeviceGraphCards();
+}
+
+// Ensure device graph cards exist
+function ensureDeviceGraphCards() {
+    const grid = document.getElementById('deviceGraphsGrid');
+
+    Object.values(devices).forEach(dev => {
+        if (!document.getElementById(`graph-card-${dev.id}`)) {
+            createDeviceGraphCard(dev, grid);
+        }
+        updateDeviceGraphCard(dev);
+    });
+}
+
+// Create device graph card
+function createDeviceGraphCard(dev, container) {
+    const card = document.createElement('div');
+    card.id = `graph-card-${dev.id}`;
+    card.className = 'device-graph-card';
+
+    card.innerHTML = `
+        <div class="device-graph-header">
+            <div class="device-graph-title">
+                <div class="indicator" style="background: ${dev.color}"></div>
+                <span class="name">${dev.name}</span>
+            </div>
+            <div class="device-graph-stats">
+                <span>RSSI: <span class="stat-value" id="stat-rssi-${dev.id}">--</span> dBm</span>
+                <span>振幅: <span class="stat-value" id="stat-amp-${dev.id}">--</span></span>
+                <span>呼吸: <span class="stat-value" id="stat-breath-${dev.id}">--</span>%</span>
+            </div>
+        </div>
+        <div class="graph-container">
+            <canvas id="canvas-signal-${dev.id}"></canvas>
+            <div class="graph-label">信号強度 (2分間)</div>
+        </div>
+        <div class="graph-container" style="height: 80px;">
+            <canvas id="canvas-waveform-${dev.id}"></canvas>
+            <div class="graph-label">CSI波形 (リアルタイム)</div>
+        </div>
+        <div class="graph-legend">
+            <div class="graph-legend-item">
+                <div class="dot" style="background: var(--accent-blue)"></div>
+                <span>RSSI</span>
+            </div>
+            <div class="graph-legend-item">
+                <div class="dot" style="background: var(--accent-green)"></div>
+                <span>振幅</span>
+            </div>
+            <div class="graph-legend-item">
+                <div class="dot" style="background: var(--accent-yellow)"></div>
+                <span>呼吸比率</span>
+            </div>
+        </div>
+    `;
+
+    container.appendChild(card);
+
+    // Setup canvases
+    const signalCanvas = document.getElementById(`canvas-signal-${dev.id}`);
+    const waveformCanvas = document.getElementById(`canvas-waveform-${dev.id}`);
+
+    deviceCanvases[dev.id] = {
+        signal: signalCanvas,
+        waveform: waveformCanvas,
+        signalCtx: signalCanvas.getContext('2d'),
+        waveformCtx: waveformCanvas.getContext('2d')
+    };
+
+    // Set canvas size
+    resizeCanvas(signalCanvas);
+    resizeCanvas(waveformCanvas);
+}
+
+// Resize canvas to match container
+function resizeCanvas(canvas) {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+}
+
+// Update device graph card stats
+function updateDeviceGraphCard(dev) {
+    const rssiEl = document.getElementById(`stat-rssi-${dev.id}`);
+    const ampEl = document.getElementById(`stat-amp-${dev.id}`);
+    const breathEl = document.getElementById(`stat-breath-${dev.id}`);
+
+    if (rssiEl) rssiEl.textContent = dev.rssi || '--';
+    if (ampEl) {
+        const avg = dev.amps ? (dev.amps.reduce((a, b) => a + b, 0) / dev.amps.length).toFixed(1) : '--';
+        ampEl.textContent = avg;
+    }
+    if (breathEl) {
+        breathEl.textContent = dev.breath?.breath_ratio ? (dev.breath.breath_ratio * 100).toFixed(0) : '--';
+    }
+}
+
+// Draw signal history graph
+function drawSignalGraph(deviceId) {
+    const canvasInfo = deviceCanvases[deviceId];
+    const hist = deviceHistory[deviceId];
+    if (!canvasInfo || !hist || hist.timestamps.length < 2) return;
+
+    const ctx = canvasInfo.signalCtx;
+    const canvas = canvasInfo.signal;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Clear
+    ctx.fillStyle = '#21262d';
+    ctx.fillRect(0, 0, w, h);
+
+    // Draw grid
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+        const y = (h / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+    }
+
+    const padding = 5;
+    const plotW = w - padding * 2;
+    const plotH = h - padding * 2;
+
+    // Normalize and draw each metric
+    const drawLine = (data, color, minVal, maxVal) => {
+        if (data.length < 2) return;
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+
+        for (let i = 0; i < data.length; i++) {
+            const x = padding + (i / (HISTORY_LENGTH - 1)) * plotW;
+            const normalized = (data[i] - minVal) / (maxVal - minVal);
+            const y = padding + plotH - normalized * plotH;
+
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+    };
+
+    // RSSI: -100 to -30 dBm
+    drawLine(hist.rssi, '#58a6ff', -100, -30);
+
+    // Amplitude: 0 to 100
+    const maxAmp = Math.max(...hist.amplitude, 100);
+    drawLine(hist.amplitude, '#3fb950', 0, maxAmp);
+
+    // Breath ratio: 0 to 100%
+    drawLine(hist.breathRatio, '#d29922', 0, 100);
+}
+
+// Draw CSI waveform
+function drawWaveform(deviceId) {
+    const canvasInfo = deviceCanvases[deviceId];
+    const dev = devices[deviceId];
+    if (!canvasInfo || !dev?.amps) return;
+
+    const ctx = canvasInfo.waveformCtx;
+    const canvas = canvasInfo.waveform;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Clear
+    ctx.fillStyle = '#21262d';
+    ctx.fillRect(0, 0, w, h);
+
+    const amps = dev.amps;
+    if (amps.length < 2) return;
+
+    // Find max for scaling
+    const maxAmp = Math.max(...amps, 1);
+
+    // Draw waveform
+    const isPresent = dev.breath?.present;
+    ctx.strokeStyle = isPresent ? '#3fb950' : '#58a6ff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+
+    const padding = 5;
+    for (let i = 0; i < amps.length; i++) {
+        const x = padding + (i / (amps.length - 1)) * (w - padding * 2);
+        const y = padding + (h - padding * 2) - (amps[i] / maxAmp) * (h - padding * 2);
+
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Draw presence indicator
+    if (isPresent) {
+        ctx.fillStyle = 'rgba(63, 185, 80, 0.3)';
+        ctx.fillRect(w - 30, 5, 25, 15);
+        ctx.fillStyle = '#3fb950';
+        ctx.font = '10px sans-serif';
+        ctx.fillText('👤', w - 25, 16);
+    }
 }
 
 // Render zone cards
@@ -466,20 +827,17 @@ function renderZones() {
             statusText = '混雑';
         }
 
-        // Check alert
         if (present >= (zone.alert_threshold || capacity * 0.8)) {
             card.classList.add('alert');
         } else {
             card.classList.remove('alert');
         }
 
-        // Get color based on ratio
         let barColor;
         if (ratio < 0.5) barColor = 'var(--accent-green)';
         else if (ratio < 0.8) barColor = 'var(--accent-yellow)';
         else barColor = 'var(--accent-red)';
 
-        // Get zone devices
         const zoneDevices = Object.values(devices).filter(d => d.zone === zoneId);
 
         card.innerHTML = `
@@ -535,14 +893,12 @@ function updateSummary() {
     document.getElementById('alertZones').textContent = alertZones;
     document.getElementById('deviceCount').textContent = Object.keys(devices).length;
 
-    // Update total present color
     const totalEl = document.getElementById('totalPresent');
     totalEl.className = 'summary-value';
     if (totalPresent === 0) totalEl.classList.add('green');
     else if (alertZones > 0) totalEl.classList.add('red');
     else totalEl.classList.add('yellow');
 
-    // Show alert banner
     const banner = document.getElementById('alertBanner');
     if (alertZones > 0) {
         banner.classList.add('visible');
@@ -554,7 +910,6 @@ function updateSummary() {
 // Update floor map
 function updateFloorMap() {
     const map = document.getElementById('floorMap');
-    const mapRect = map.getBoundingClientRect();
 
     Object.values(devices).forEach(dev => {
         let marker = document.getElementById(`map-${dev.id}`);
@@ -566,9 +921,8 @@ function updateFloorMap() {
             map.appendChild(marker);
         }
 
-        // Position (default to center if not specified)
-        const x = 50 + (devices[dev.id]?.position?.x || 0) * 5;
-        const y = 50 + (devices[dev.id]?.position?.y || 0) * 5;
+        const x = 50 + (dev.position?.x || 0) * 5;
+        const y = 50 + (dev.position?.y || 0) * 5;
         marker.style.left = `${x}%`;
         marker.style.top = `${y}%`;
         marker.style.borderColor = dev.color;
@@ -583,8 +937,26 @@ function updateFloorMap() {
     });
 }
 
+// Animation loop for graphs
+function animateGraphs() {
+    Object.keys(deviceCanvases).forEach(deviceId => {
+        drawSignalGraph(deviceId);
+        drawWaveform(deviceId);
+    });
+    requestAnimationFrame(animateGraphs);
+}
+
+// Handle window resize
+window.addEventListener('resize', () => {
+    Object.values(deviceCanvases).forEach(info => {
+        resizeCanvas(info.signal);
+        resizeCanvas(info.waveform);
+    });
+});
+
 // Initialize
 connect();
+animateGraphs();
 </script>
 </body>
 </html>
