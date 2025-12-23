@@ -6,8 +6,8 @@
 
 ### 仕様
 - ボーレート: 115200
-- WiFi SSID: msdfreeap
-- WiFi Password: relfdsa23g5
+- WiFi SSID: <YOUR_WIFI_SSID>
+- WiFi Password: <YOUR_WIFI_PASSWORD>
 - 出力形式: CSI_DATA CSV形式
 
 ### 書き込み方法

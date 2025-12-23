@@ -11,7 +11,7 @@ devices:
   # デバイス1: エントランス
   - id: "esp32-entrance"
     name: "エントランス"
-    port: "/dev/cu.usbserial-110"
+    port: "/dev/cu.usbserial-110" # 環境に合わせて変更してください (e.g., COM3, /dev/ttyUSB0)
     baud: 115200
     zone: "zone-a"
     position:
@@ -23,7 +23,7 @@ devices:
   # デバイス2: 会議室
   - id: "esp32-meeting"
     name: "会議室"
-    port: "/dev/cu.usbserial-10"
+    port: "/dev/cu.usbserial-10" # 環境に合わせて変更してください (e.g., COM4, /dev/ttyUSB1)
     baud: 115200
     zone: "zone-b"
     position:
