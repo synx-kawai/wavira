@@ -14,6 +14,7 @@ setup(
         "scikit-learn>=1.3.0",
         "tqdm>=4.65.0",
         "matplotlib>=3.7.0",
+        "h5py>=3.8.0",
     ],
     extras_require={
         "dev": [

@@ -101,7 +101,11 @@ class TransformerEncoder(nn.Module):
             batch_first=True,
             norm_first=True,  # Pre-norm for better training stability
         )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.transformer = nn.TransformerEncoder(
+            encoder_layer, 
+            num_layers=num_layers,
+            enable_nested_tensor=False
+        )
 
         self._init_weights()
 

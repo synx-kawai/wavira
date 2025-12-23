@@ -1096,6 +1096,10 @@ function displayHourlySummary(data) {
         return;
     }
 
+    // Get selected period
+    const selectedPeriod = parseInt(document.getElementById('hourlyPeriod').value);
+    const currentHour = new Date().getHours();
+
     // Group by hour
     const hourlyData = {};
     for (const row of data) {
@@ -1106,22 +1110,43 @@ function displayHourlySummary(data) {
         hourlyData[hour].push(row.avg_crowd_level * 100);
     }
 
-    // Calculate average and max per hour
+    // Calculate which hours to display based on selected period
     const hours = [];
     const avgValues = [];
     const maxValues = [];
 
-    for (let h = 0; h < 24; h++) {
-        const hourStr = h.toString().padStart(2, '0') + ':00';
-        hours.push(hourStr);
+    // For periods <= 24 hours, show only relevant hours from current time backwards
+    // For periods > 24 hours (48h, 168h), show all 24 hours in order (00:00-23:00)
+    if (selectedPeriod > 24) {
+        // Show full 24-hour range for multi-day periods
+        for (let h = 0; h < 24; h++) {
+            const hourStr = h.toString().padStart(2, '0') + ':00';
+            hours.push(hourStr);
 
-        if (hourlyData[hourStr]) {
-            const values = hourlyData[hourStr];
-            avgValues.push(values.reduce((a, b) => a + b, 0) / values.length);
-            maxValues.push(Math.max(...values));
-        } else {
-            avgValues.push(0);
-            maxValues.push(0);
+            if (hourlyData[hourStr]) {
+                const values = hourlyData[hourStr];
+                avgValues.push(values.reduce((a, b) => a + b, 0) / values.length);
+                maxValues.push(Math.max(...values));
+            } else {
+                avgValues.push(0);
+                maxValues.push(0);
+            }
+        }
+    } else {
+        // Show only relevant hours from current time backwards
+        for (let i = selectedPeriod - 1; i >= 0; i--) {
+            let h = (currentHour - i + 24) % 24;
+            const hourStr = h.toString().padStart(2, '0') + ':00';
+            hours.push(hourStr);
+
+            if (hourlyData[hourStr]) {
+                const values = hourlyData[hourStr];
+                avgValues.push(values.reduce((a, b) => a + b, 0) / values.length);
+                maxValues.push(Math.max(...values));
+            } else {
+                avgValues.push(0);
+                maxValues.push(0);
+            }
         }
     }
 
