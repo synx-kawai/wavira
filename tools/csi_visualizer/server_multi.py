@@ -71,15 +71,25 @@ class DeviceState:
 
 
 class DataRecorder:
-    """履歴データをSQLiteに保存するクラス"""
+    """履歴データをSQLiteに保存するクラス（スレッドセーフ、自動クリーンアップ対応）"""
 
-    def __init__(self, db_path: str = "history.db"):
+    def __init__(self, db_path: str = "history.db", retention_days: int = 7):
         self.db_path = Path(db_path)
+        self.retention_days = retention_days
+        self._conn = None
+        self._lock = asyncio.Lock()
         self._init_db()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """コネクションを取得（再利用）"""
+        if self._conn is None:
+            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+        return self._conn
 
     def _init_db(self):
         """データベースを初期化"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
 
         # デバイス別の詳細データ
@@ -119,73 +129,88 @@ class DataRecorder:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_zone_timestamp ON zone_history(timestamp)')
 
         conn.commit()
-        conn.close()
         logger.info(f"Database initialized: {self.db_path}")
 
-    def save_device_data(self, data: Dict):
-        """デバイスデータを保存"""
+    def close(self):
+        """コネクションを閉じる"""
+        if self._conn:
+            self._conn.close()
+            self._conn = None
+
+    def _save_device_data_sync(self, data: Dict):
+        """デバイスデータを保存（同期版）"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+
+        breath = data.get("breath", {})
+        cursor.execute('''
+            INSERT INTO device_history
+            (timestamp, datetime, device_id, device_name, zone, rssi,
+             is_present, breath_rate, breath_ratio, confidence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data.get("timestamp", time.time()),
+            datetime.now().isoformat(),
+            data.get("device_id"),
+            data.get("device_name"),
+            data.get("zone"),
+            data.get("rssi"),
+            1 if breath.get("present") else 0,
+            breath.get("breath_rate", 0),
+            breath.get("breath_ratio", 0),
+            breath.get("confidence", 0),
+        ))
+        conn.commit()
+
+    async def save_device_data(self, data: Dict):
+        """デバイスデータを保存（非同期版 - イベントループをブロックしない）"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-
-            breath = data.get("breath", {})
-            cursor.execute('''
-                INSERT INTO device_history
-                (timestamp, datetime, device_id, device_name, zone, rssi,
-                 is_present, breath_rate, breath_ratio, confidence)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                data.get("timestamp", time.time()),
-                datetime.now().isoformat(),
-                data.get("device_id"),
-                data.get("device_name"),
-                data.get("zone"),
-                data.get("rssi"),
-                1 if breath.get("present") else 0,
-                breath.get("breath_rate", 0),
-                breath.get("breath_ratio", 0),
-                breath.get("confidence", 0),
-            ))
-
-            conn.commit()
-            conn.close()
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._save_device_data_sync, data)
         except Exception as e:
             logger.error(f"Failed to save device data: {e}")
 
-    def save_zone_summary(self, zone_id: str, zone_name: str,
-                          device_count: int, present_count: int,
-                          avg_rssi: float, crowd_level: float):
-        """ゾーン集計データを保存"""
+    def _save_zone_summary_sync(self, zone_id: str, zone_name: str,
+                                 device_count: int, present_count: int,
+                                 avg_rssi: float, crowd_level: float):
+        """ゾーン集計データを保存（同期版）"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT INTO zone_history
+            (timestamp, datetime, zone, zone_name, device_count,
+             present_count, avg_rssi, crowd_level)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            time.time(),
+            datetime.now().isoformat(),
+            zone_id,
+            zone_name,
+            device_count,
+            present_count,
+            avg_rssi,
+            crowd_level,
+        ))
+        conn.commit()
+
+    async def save_zone_summary(self, zone_id: str, zone_name: str,
+                                device_count: int, present_count: int,
+                                avg_rssi: float, crowd_level: float):
+        """ゾーン集計データを保存（非同期版）"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-
-            cursor.execute('''
-                INSERT INTO zone_history
-                (timestamp, datetime, zone, zone_name, device_count,
-                 present_count, avg_rssi, crowd_level)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                time.time(),
-                datetime.now().isoformat(),
-                zone_id,
-                zone_name,
-                device_count,
-                present_count,
-                avg_rssi,
-                crowd_level,
-            ))
-
-            conn.commit()
-            conn.close()
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None, self._save_zone_summary_sync,
+                zone_id, zone_name, device_count, present_count, avg_rssi, crowd_level
+            )
         except Exception as e:
             logger.error(f"Failed to save zone summary: {e}")
 
     def get_device_history(self, device_id: str = None,
                            hours: int = 24, limit: int = 1000) -> List[Dict]:
         """デバイス履歴を取得"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_conn()
         cursor = conn.cursor()
 
         since = time.time() - (hours * 3600)
@@ -203,15 +228,12 @@ class DataRecorder:
                 ORDER BY timestamp DESC LIMIT ?
             ''', (since, limit))
 
-        rows = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return rows
+        return [dict(row) for row in cursor.fetchall()]
 
     def get_zone_history(self, zone_id: str = None,
                          hours: int = 24, limit: int = 1000) -> List[Dict]:
         """ゾーン履歴を取得"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_conn()
         cursor = conn.cursor()
 
         since = time.time() - (hours * 3600)
@@ -229,13 +251,11 @@ class DataRecorder:
                 ORDER BY timestamp DESC LIMIT ?
             ''', (since, limit))
 
-        rows = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return rows
+        return [dict(row) for row in cursor.fetchall()]
 
     def get_hourly_summary(self, hours: int = 24) -> List[Dict]:
         """時間別サマリーを取得"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
 
         since = time.time() - (hours * 3600)
@@ -262,9 +282,33 @@ class DataRecorder:
                 "max_present": row[3],
                 "avg_crowd_level": row[4],
             })
-
-        conn.close()
         return rows
+
+    def cleanup_old_data(self) -> int:
+        """古いデータを削除（retention_days以前のデータ）"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+
+        cutoff = time.time() - (self.retention_days * 24 * 3600)
+
+        cursor.execute('DELETE FROM device_history WHERE timestamp < ?', (cutoff,))
+        device_deleted = cursor.rowcount
+
+        cursor.execute('DELETE FROM zone_history WHERE timestamp < ?', (cutoff,))
+        zone_deleted = cursor.rowcount
+
+        conn.commit()
+
+        total_deleted = device_deleted + zone_deleted
+        if total_deleted > 0:
+            logger.info(f"Cleaned up {device_deleted} device records and {zone_deleted} zone records older than {self.retention_days} days")
+
+        return total_deleted
+
+    async def cleanup_old_data_async(self) -> int:
+        """古いデータを削除（非同期版）"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.cleanup_old_data)
 
 
 class MultiDeviceServer:
@@ -431,10 +475,10 @@ class MultiDeviceServer:
                             state.last_update = time.time()
                             state.packet_count += 1
 
-                            # Save to database (throttled)
+                            # Save to database (throttled, async)
                             current_time = time.time()
                             if current_time - self.last_save_time >= self.save_interval:
-                                self.recorder.save_device_data(data)
+                                await self.recorder.save_device_data(data)
                                 self.last_save_time = current_time
 
                             # Broadcast to clients
@@ -615,7 +659,7 @@ class MultiDeviceServer:
                 avg_rssi = sum(zdata["rssi_values"]) / len(zdata["rssi_values"]) if zdata["rssi_values"] else 0
                 crowd_level = present_count / zdata["capacity"] if zdata["capacity"] > 0 else 0
 
-                self.recorder.save_zone_summary(
+                await self.recorder.save_zone_summary(
                     zone_id=zone_id,
                     zone_name=zdata["name"],
                     device_count=device_count,
@@ -625,6 +669,17 @@ class MultiDeviceServer:
                 )
 
             logger.info(f"Saved zone summary for {len(zones_data)} zones")
+
+    async def _data_cleaner(self):
+        """定期的に古いデータを削除（1時間ごと）"""
+        while self.running:
+            await asyncio.sleep(3600)  # 1時間ごと
+            try:
+                deleted = await self.recorder.cleanup_old_data_async()
+                if deleted > 0:
+                    logger.info(f"Data cleanup completed: {deleted} records deleted")
+            except Exception as e:
+                logger.error(f"Data cleanup failed: {e}")
 
     async def run(self):
         """サーバーを実行"""
@@ -654,10 +709,17 @@ class MultiDeviceServer:
             # ゾーンサマリー保存タスク
             tasks.append(asyncio.create_task(self._zone_recorder()))
 
+            # データクリーンアップタスク（古いデータの自動削除）
+            tasks.append(asyncio.create_task(self._data_cleaner()))
+
             try:
                 await asyncio.gather(*tasks)
             except asyncio.CancelledError:
                 pass
+            finally:
+                # データベースコネクションを閉じる
+                self.recorder.close()
+                logger.info("Database connection closed")
 
         self.running = False
 
