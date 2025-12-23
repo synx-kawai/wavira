@@ -1,0 +1,182 @@
+menu "Wavira CSI HTTP Configuration"
+
+    choice CSI_OUTPUT_MODE
+        prompt "CSI Data Output Mode"
+        default CSI_OUTPUT_SERIAL
+        help
+            Select how CSI data should be output.
+            Serial mode outputs to UART (for development).
+            HTTP mode sends to a server via Wi-Fi.
+
+        config CSI_OUTPUT_SERIAL
+            bool "Serial Output (UART)"
+            help
+                Output CSI data to serial port (traditional mode).
+                Use this for development and debugging with PC-connected ESP32.
+
+        config CSI_OUTPUT_HTTP
+            bool "HTTP Output (Wi-Fi)"
+            help
+                Send CSI data to HTTP server via Wi-Fi.
+                Use this for production deployment.
+    endchoice
+
+    menu "Wi-Fi Configuration"
+        depends on CSI_OUTPUT_HTTP
+
+        config WAVIRA_WIFI_SSID
+            string "Wi-Fi SSID"
+            default "myssid"
+            help
+                SSID (network name) for the ESP32 to connect to.
+
+        config WAVIRA_WIFI_PASSWORD
+            string "Wi-Fi Password"
+            default "mypassword"
+            help
+                Wi-Fi password (WPA or WPA2) for the network.
+
+        config WAVIRA_WIFI_MAXIMUM_RETRY
+            int "Maximum retry attempts"
+            default 5
+            help
+                Maximum number of retry attempts for Wi-Fi connection.
+                Set to 0 for infinite retries.
+
+        config WAVIRA_WIFI_SCAN_AUTH_MODE_THRESHOLD
+            int "Wi-Fi Scan auth mode threshold"
+            default 3
+            help
+                0 = OPEN, 1 = WEP, 2 = WPA_PSK, 3 = WPA2_PSK,
+                4 = WPA_WPA2_PSK, 5 = WPA3_PSK, 6 = WPA2_WPA3_PSK
+    endmenu
+
+    menu "HTTP Server Configuration"
+        depends on CSI_OUTPUT_HTTP
+
+        config WAVIRA_SERVER_URL
+            string "Server URL"
+            default "http://192.168.1.100:8080/api/v1/csi"
+            help
+                Full URL of the CSI data receiving endpoint.
+                Example: http://192.168.1.100:8080/api/v1/csi
+
+        config WAVIRA_BATCH_ENDPOINT
+            string "Batch Endpoint URL"
+            default "http://192.168.1.100:8080/api/v1/csi/batch"
+            help
+                Full URL of the batch CSI data receiving endpoint.
+
+        config WAVIRA_API_KEY
+            string "API Key"
+            default ""
+            help
+                API key for server authentication.
+                Leave empty if authentication is disabled on server.
+
+        config WAVIRA_HTTP_TIMEOUT_MS
+            int "HTTP Request Timeout (ms)"
+            default 5000
+            range 1000 30000
+            help
+                Timeout for HTTP requests in milliseconds.
+
+        config WAVIRA_HTTP_MAX_RETRIES
+            int "Maximum HTTP Retries"
+            default 3
+            range 0 10
+            help
+                Maximum number of retry attempts for failed HTTP requests.
+    endmenu
+
+    menu "Device Configuration"
+        depends on CSI_OUTPUT_HTTP
+
+        config WAVIRA_DEVICE_ID
+            string "Device ID"
+            default "esp32-001"
+            help
+                Unique identifier for this ESP32 device.
+                Used in CSI data payload and server-side tracking.
+
+        config WAVIRA_DEVICE_ZONE
+            string "Device Zone"
+            default "default"
+            help
+                Zone identifier where this device is installed.
+                Used for spatial organization of multiple devices.
+    endmenu
+
+    menu "Data Buffering Configuration"
+        depends on CSI_OUTPUT_HTTP
+
+        config WAVIRA_BUFFER_SIZE
+            int "Ring Buffer Size"
+            default 50
+            range 10 200
+            help
+                Number of CSI packets to buffer before sending.
+                Larger values reduce network overhead but increase latency.
+
+        config WAVIRA_BATCH_SIZE
+            int "Batch Size"
+            default 10
+            range 1 100
+            help
+                Number of CSI packets to send in each HTTP batch request.
+                Must be less than or equal to buffer size.
+
+        config WAVIRA_SEND_INTERVAL_MS
+            int "Send Interval (ms)"
+            default 100
+            range 50 1000
+            help
+                Minimum interval between batch HTTP sends in milliseconds.
+                Prevents overwhelming the server with requests.
+    endmenu
+
+    menu "CSI Trigger Configuration"
+        choice CSI_TRIGGER_MODE
+            prompt "CSI Trigger Mode"
+            default CSI_TRIGGER_ESPNOW
+            help
+                Select how CSI measurements are triggered.
+
+            config CSI_TRIGGER_ESPNOW
+                bool "ESP-NOW (Sender Device)"
+                help
+                    Use ESP-NOW protocol with a dedicated sender device.
+                    Best for controlled environments with multiple ESP32s.
+
+            config CSI_TRIGGER_ROUTER
+                bool "Router Ping"
+                depends on CSI_OUTPUT_HTTP
+                help
+                    Ping the connected router to trigger CSI measurements.
+                    Simpler setup but may have more interference.
+        endchoice
+
+        config CSI_TRIGGER_FREQUENCY
+            int "Trigger Frequency (Hz)"
+            default 10
+            range 1 100
+            help
+                How many CSI measurements to trigger per second.
+    endmenu
+
+    config WAVIRA_LED_GPIO
+        int "Status LED GPIO"
+        default 2
+        range 0 48
+        help
+            GPIO pin for status LED.
+            LED indicates connection and transmission status.
+
+    config WAVIRA_DEBUG_SERIAL
+        bool "Enable Debug Serial Output"
+        default y
+        help
+            Enable debug messages on serial port even in HTTP mode.
+            Useful for debugging but increases power consumption.
+
+endmenu
