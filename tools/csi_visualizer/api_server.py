@@ -11,7 +11,6 @@ Usage:
 """
 
 import asyncio
-import json
 import logging
 import os
 import sys
@@ -21,7 +20,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
@@ -542,7 +541,7 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
         result = []
         for device in devices:
             # 30秒以上データがない場合はオフライン
-            status = "online" if now - device.last_seen < 30 else "offline"
+            device_status = "online" if now - device.last_seen < 30 else "offline"
             last_seen = (
                 datetime.fromtimestamp(device.last_seen).isoformat()
                 if device.last_seen > 0
@@ -551,7 +550,7 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
             result.append(
                 DeviceStatusResponse(
                     device_id=device.device_id,
-                    status=status,
+                    status=device_status,
                     last_seen=last_seen,
                     packet_count=device.packet_count,
                     error_count=device.error_count,

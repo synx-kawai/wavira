@@ -26,9 +26,6 @@ from api_server import (
     create_app,
 )
 
-# pytest-asyncio設定
-pytestmark = pytest.mark.asyncio(loop_scope="function")
-
 
 # =============================================================================
 # Fixtures
