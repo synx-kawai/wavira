@@ -11,3 +11,9 @@ __pycache__/
 
 # Model checkpoints
 checkpoints/
+
+# ESP-IDF build files (use firmware/esp32_csi_firmware.bin instead)
+esp-csi/**/build/
+esp-csi/**/sdkconfig
+esp-csi/**/sdkconfig.old
+esp-csi/**/dependencies.lock
