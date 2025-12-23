@@ -13,9 +13,10 @@ Usage:
 import asyncio
 import logging
 import os
+import secrets
 import sys
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -132,7 +133,7 @@ class ErrorResponse(BaseModel):
 class RateLimitState:
     """レート制限の状態"""
 
-    requests: List[float] = field(default_factory=list)
+    requests: deque = field(default_factory=deque)
     window_seconds: int = 1
     max_requests: int = 100
 
@@ -153,8 +154,9 @@ class RateLimiter:
             state = self.states[device_id]
             now = time.time()
 
-            # 古いリクエストを削除
-            state.requests = [t for t in state.requests if now - t < state.window_seconds]
+            # 古いリクエストを効率的に削除（deque.popleft()）
+            while state.requests and now - state.requests[0] >= state.window_seconds:
+                state.requests.popleft()
 
             if len(state.requests) >= state.max_requests:
                 return False
@@ -168,7 +170,9 @@ class RateLimiter:
             now = time.time()
             to_delete = []
             for device_id, state in self.states.items():
-                state.requests = [t for t in state.requests if now - t < state.window_seconds]
+                # 古いリクエストを効率的に削除（deque.popleft()）
+                while state.requests and now - state.requests[0] >= state.window_seconds:
+                    state.requests.popleft()
                 if not state.requests:
                     to_delete.append(device_id)
             for device_id in to_delete:
@@ -363,7 +367,14 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
                 detail="API key is required",
             )
 
-        if api_key not in config.api_keys:
+        # タイミング攻撃対策: secrets.compare_digestで安全に比較
+        is_valid = False
+        for valid_key in config.api_keys:
+            if secrets.compare_digest(api_key, valid_key):
+                is_valid = True
+                break
+
+        if not is_valid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid API key",
