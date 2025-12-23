@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSI History Viewer - 混雑履歴</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e8e8e8;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        header h1 {
+            font-size: 2rem;
+            color: #58a6ff;
+            margin-bottom: 10px;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .control-group label {
+            color: #8b949e;
+        }
+        select, button {
+            padding: 10px 20px;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            background: #21262d;
+            color: #e8e8e8;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        button {
+            background: #238636;
+            border-color: #238636;
+        }
+        button:hover {
+            background: #2ea043;
+        }
+        .status {
+            text-align: center;
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            background: #21262d;
+        }
+        .status.connected { border-left: 4px solid #3fb950; }
+        .status.disconnected { border-left: 4px solid #f85149; }
+        .chart-container {
+            background: #21262d;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .chart-title {
+            font-size: 1.2rem;
+            color: #58a6ff;
+            margin-bottom: 15px;
+        }
+        .chart-wrapper {
+            position: relative;
+            height: 300px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #30363d;
+        }
+        th {
+            background: #161b22;
+            color: #8b949e;
+            font-weight: 500;
+        }
+        tr:hover {
+            background: #161b22;
+        }
+        .present { color: #3fb950; }
+        .absent { color: #8b949e; }
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .summary-card {
+            background: #21262d;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .summary-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #58a6ff;
+        }
+        .summary-card .label {
+            color: #8b949e;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>CSI History Viewer</h1>
+            <p>混雑履歴データ</p>
+        </header>
+
+        <div class="status disconnected" id="status">
+            接続中...
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>期間:</label>
+                <select id="hours">
+                    <option value="1">過去1時間</option>
+                    <option value="6">過去6時間</option>
+                    <option value="12">過去12時間</option>
+                    <option value="24" selected>過去24時間</option>
+                    <option value="48">過去48時間</option>
+                    <option value="168">過去1週間</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>ゾーン:</label>
+                <select id="zone">
+                    <option value="">すべて</option>
+                </select>
+            </div>
+            <button onclick="loadHistory()">更新</button>
+        </div>
+
+        <div class="summary-cards" id="summary-cards">
+            <!-- Dynamic summary cards -->
+        </div>
+
+        <div class="grid">
+            <div class="chart-container">
+                <div class="chart-title">混雑レベル推移</div>
+                <div class="chart-wrapper">
+                    <canvas id="crowdChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">時間帯別平均</div>
+                <div class="chart-wrapper">
+                    <canvas id="hourlyChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div class="chart-title">詳細履歴</div>
+            <table id="historyTable">
+                <thead>
+                    <tr>
+                        <th>日時</th>
+                        <th>ゾーン</th>
+                        <th>検知人数</th>
+                        <th>混雑レベル</th>
+                        <th>平均RSSI</th>
+                    </tr>
+                </thead>
+                <tbody id="historyBody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let crowdChart = null;
+        let hourlyChart = null;
+        const zones = new Set();
+
+        function connect() {
+            ws = new WebSocket('ws://localhost:8765');
+
+            ws.onopen = () => {
+                document.getElementById('status').textContent = '接続中';
+                document.getElementById('status').className = 'status connected';
+                loadHistory();
+            };
+
+            ws.onclose = () => {
+                document.getElementById('status').textContent = '切断 - 再接続中...';
+                document.getElementById('status').className = 'status disconnected';
+                setTimeout(connect, 3000);
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'status') {
+                    updateZoneSelector(data.zones);
+                } else if (data.type === 'history') {
+                    displayHistory(data.data);
+                } else if (data.type === 'hourly_summary') {
+                    displayHourlySummary(data.data);
+                }
+            };
+        }
+
+        function updateZoneSelector(zonesData) {
+            const select = document.getElementById('zone');
+            const currentValue = select.value;
+
+            for (const [zoneId, zone] of Object.entries(zonesData)) {
+                if (!zones.has(zoneId)) {
+                    zones.add(zoneId);
+                    const option = document.createElement('option');
+                    option.value = zoneId;
+                    option.textContent = zone.name;
+                    select.appendChild(option);
+                }
+            }
+
+            select.value = currentValue;
+        }
+
+        function loadHistory() {
+            const hours = parseInt(document.getElementById('hours').value);
+            const zoneId = document.getElementById('zone').value;
+
+            // Get zone history
+            ws.send(JSON.stringify({
+                type: 'get_history',
+                history_type: 'zone',
+                hours: hours,
+                zone_id: zoneId || null
+            }));
+
+            // Get hourly summary
+            ws.send(JSON.stringify({
+                type: 'get_hourly_summary',
+                hours: hours
+            }));
+        }
+
+        function displayHistory(data) {
+            // Update table
+            const tbody = document.getElementById('historyBody');
+            tbody.innerHTML = '';
+
+            // Sort by timestamp descending
+            data.sort((a, b) => b.timestamp - a.timestamp);
+
+            // Take last 100 records
+            const displayData = data.slice(0, 100);
+
+            for (const row of displayData) {
+                const tr = document.createElement('tr');
+                const crowdLevel = (row.crowd_level * 100).toFixed(0);
+                tr.innerHTML = `
+                    <td>${row.datetime.replace('T', ' ').substring(0, 19)}</td>
+                    <td>${row.zone_name || row.zone}</td>
+                    <td class="${row.present_count > 0 ? 'present' : 'absent'}">${row.present_count}</td>
+                    <td>${crowdLevel}%</td>
+                    <td>${row.avg_rssi ? row.avg_rssi.toFixed(0) : '-'} dBm</td>
+                `;
+                tbody.appendChild(tr);
+            }
+
+            // Update summary cards
+            updateSummaryCards(data);
+
+            // Update crowd chart
+            updateCrowdChart(data);
+        }
+
+        function updateSummaryCards(data) {
+            const container = document.getElementById('summary-cards');
+
+            if (data.length === 0) {
+                container.innerHTML = '<div class="summary-card"><div class="value">-</div><div class="label">データなし</div></div>';
+                return;
+            }
+
+            // Calculate stats
+            const avgCrowd = data.reduce((sum, d) => sum + d.crowd_level, 0) / data.length;
+            const maxCrowd = Math.max(...data.map(d => d.crowd_level));
+            const totalRecords = data.length;
+            const avgPresent = data.reduce((sum, d) => sum + d.present_count, 0) / data.length;
+
+            container.innerHTML = `
+                <div class="summary-card">
+                    <div class="value">${(avgCrowd * 100).toFixed(0)}%</div>
+                    <div class="label">平均混雑率</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value">${(maxCrowd * 100).toFixed(0)}%</div>
+                    <div class="label">最大混雑率</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value">${avgPresent.toFixed(1)}</div>
+                    <div class="label">平均検知人数</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value">${totalRecords}</div>
+                    <div class="label">記録数</div>
+                </div>
+            `;
+        }
+
+        function updateCrowdChart(data) {
+            // Sort by timestamp ascending for chart
+            const sortedData = [...data].sort((a, b) => a.timestamp - b.timestamp);
+
+            // Group by zone
+            const zoneData = {};
+            for (const row of sortedData) {
+                const zone = row.zone_name || row.zone;
+                if (!zoneData[zone]) {
+                    zoneData[zone] = { labels: [], values: [] };
+                }
+                zoneData[zone].labels.push(row.datetime.substring(11, 16));
+                zoneData[zone].values.push(row.crowd_level * 100);
+            }
+
+            const datasets = [];
+            const colors = ['#58a6ff', '#3fb950', '#d29922', '#f85149', '#a371f7'];
+            let colorIndex = 0;
+
+            for (const [zone, zdata] of Object.entries(zoneData)) {
+                datasets.push({
+                    label: zone,
+                    data: zdata.values,
+                    borderColor: colors[colorIndex % colors.length],
+                    backgroundColor: colors[colorIndex % colors.length] + '20',
+                    tension: 0.3,
+                    fill: true,
+                });
+                colorIndex++;
+            }
+
+            const labels = sortedData.length > 0 ?
+                sortedData.map(d => d.datetime.substring(11, 16)) :
+                [];
+
+            if (crowdChart) {
+                crowdChart.destroy();
+            }
+
+            const ctx = document.getElementById('crowdChart').getContext('2d');
+            crowdChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [...new Set(labels)],
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: { display: true, text: '混雑率 (%)' },
+                            grid: { color: '#30363d' }
+                        },
+                        x: {
+                            grid: { color: '#30363d' }
+                        }
+                    },
+                    plugins: {
+                        legend: { position: 'top' }
+                    }
+                }
+            });
+        }
+
+        function displayHourlySummary(data) {
+            if (data.length === 0) return;
+
+            // Group by hour
+            const hourlyData = {};
+            for (const row of data) {
+                const hour = row.hour.substring(11, 13) + ':00';
+                if (!hourlyData[hour]) {
+                    hourlyData[hour] = [];
+                }
+                hourlyData[hour].push(row.avg_crowd_level * 100);
+            }
+
+            // Calculate average per hour
+            const hours = [];
+            const avgValues = [];
+            const maxValues = [];
+
+            for (let h = 0; h < 24; h++) {
+                const hourStr = h.toString().padStart(2, '0') + ':00';
+                hours.push(hourStr);
+
+                if (hourlyData[hourStr]) {
+                    const values = hourlyData[hourStr];
+                    avgValues.push(values.reduce((a, b) => a + b, 0) / values.length);
+                    maxValues.push(Math.max(...values));
+                } else {
+                    avgValues.push(0);
+                    maxValues.push(0);
+                }
+            }
+
+            if (hourlyChart) {
+                hourlyChart.destroy();
+            }
+
+            const ctx = document.getElementById('hourlyChart').getContext('2d');
+            hourlyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: hours,
+                    datasets: [
+                        {
+                            label: '平均',
+                            data: avgValues,
+                            backgroundColor: '#58a6ff80',
+                            borderColor: '#58a6ff',
+                            borderWidth: 1
+                        },
+                        {
+                            label: '最大',
+                            data: maxValues,
+                            backgroundColor: '#f8514980',
+                            borderColor: '#f85149',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: { display: true, text: '混雑率 (%)' },
+                            grid: { color: '#30363d' }
+                        },
+                        x: {
+                            grid: { color: '#30363d' }
+                        }
+                    },
+                    plugins: {
+                        legend: { position: 'top' }
+                    }
+                }
+            });
+        }
+
+        // Auto-refresh every 60 seconds
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                loadHistory();
+            }
+        }, 60000);
+
+        // Start connection
+        connect();
+    </script>
+</body>
+</html>

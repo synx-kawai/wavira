@@ -18,6 +18,7 @@ import os
 import time
 import json
 import numpy as np
+import h5py
 import argparse
 import logging
 import signal
@@ -54,6 +55,13 @@ class CrowdDataCollector:
     - Timeout handling
     """
 
+    # Default num_people for each level (used if not specified)
+    DEFAULT_NUM_PEOPLE = {
+        0: 0,   # empty
+        1: 3,   # moderate (middle of 2-5)
+        2: 8,   # crowded (representative value for 6+)
+    }
+
     def __init__(
         self,
         port: Optional[str],
@@ -61,6 +69,7 @@ class CrowdDataCollector:
         output_dir: str,
         level: int,
         location: str,
+        num_people: Optional[int] = None,
         samples_per_file: int = 100,
         num_files: int = 10,
         timeout_sec: int = 300,
@@ -70,6 +79,7 @@ class CrowdDataCollector:
         self.level = level
         self.level_name = CROWD_LEVELS.get(level, f"level_{level}")
         self.location = location
+        self.num_people = num_people if num_people is not None else self.DEFAULT_NUM_PEOPLE.get(level, level)
         self.samples_per_file = samples_per_file
         self.num_files = num_files
         self.timeout_sec = timeout_sec
@@ -133,36 +143,38 @@ class CrowdDataCollector:
         logger.error(f"Error: {error}")
 
     def _save_buffer(self):
-        """Save current buffer to file."""
+        """Save current buffer to HDF5 file (compatible with CrowdDataset)."""
         if not self._buffer:
             return
 
         try:
-            # Convert to numpy array
-            data_array = np.array(self._buffer)
-            data_array = np.transpose(data_array, (1, 0))
-            data_array = np.expand_dims(data_array, axis=0)
+            # Convert to numpy array: (samples, subcarriers) with complex values
+            data_array = np.array(self._buffer)  # shape: (samples, subcarriers)
 
-            # Save data
-            filename = f"{self.session_id}_{self._file_count:04d}.npy"
+            # Extract amplitude from complex CSI data
+            # CrowdDataset expects shape: (samples, n_subcarriers)
+            amplitudes = np.abs(data_array).astype(np.float32)
+
+            # Save to HDF5 file (CrowdDataset compatible format)
+            filename = f"{self.session_id}_{self._file_count:04d}.h5"
             filepath = os.path.join(self.save_dir, filename)
-            np.save(filepath, data_array)
 
-            # Save metadata
-            meta = {
-                "level": self.level,
-                "level_name": self.level_name,
-                "location": self.location,
-                "session_id": self.session_id,
-                "file_index": self._file_count,
-                "samples": len(self._buffer),
-                "timestamp": datetime.now().isoformat(),
-            }
-            meta_path = filepath.replace(".npy", ".json")
-            with open(meta_path, 'w') as f:
-                json.dump(meta, f, indent=2)
+            with h5py.File(filepath, 'w') as f:
+                # Store amplitude data
+                f.create_dataset('amplitudes', data=amplitudes, compression='gzip')
 
-            print(f"\n  Saved: {filename}")
+                # Store metadata as attributes
+                f.attrs['num_people'] = self.num_people
+                f.attrs['level'] = self.level
+                f.attrs['level_name'] = self.level_name
+                f.attrs['location'] = self.location
+                f.attrs['session_id'] = self.session_id
+                f.attrs['file_index'] = self._file_count
+                f.attrs['samples'] = len(self._buffer)
+                f.attrs['timestamp'] = datetime.now().isoformat()
+                f.attrs['n_subcarriers'] = amplitudes.shape[1] if len(amplitudes.shape) > 1 else 0
+
+            print(f"\n  Saved: {filename} (num_people={self.num_people}, shape={amplitudes.shape})")
 
             self._buffer = []
             self._file_count += 1
@@ -179,11 +191,13 @@ class CrowdDataCollector:
         """
         # Print header
         print("=" * 60)
-        print("Crowd Level Data Collection")
+        print("Crowd Level Data Collection (HDF5 Format)")
         print("=" * 60)
         print(f"Location:    {self.location}")
         print(f"Level:       {self.level} ({self.level_name})")
+        print(f"Num People:  {self.num_people}")
         print(f"Output:      {self.save_dir}")
+        print(f"Format:      HDF5 (.h5) - CrowdDataset compatible")
         print(f"Target:      {self.num_files} files x {self.samples_per_file} samples")
         print(f"Session:     {self.session_id}")
         print(f"Timeout:     {self.timeout_sec}s")
@@ -285,18 +299,27 @@ class CrowdDataCollector:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Collect CSI data for crowd level estimation",
+        description="Collect CSI data for crowd level estimation (HDF5 format)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Crowd Levels:
-  0: Empty (0-1 people)
-  1: Moderate (2-5 people)
-  2: Crowded (6+ people)
+  0: Empty (0-1 people)    -> default num_people=0
+  1: Moderate (2-5 people) -> default num_people=3
+  2: Crowded (6+ people)   -> default num_people=8
+
+Output Format:
+  HDF5 files (.h5) compatible with CrowdDataset
+  - amplitudes: CSI amplitude data (samples, n_subcarriers)
+  - num_people: Number of people (attribute)
 
 Example:
+  # Collect with default num_people for each level
   python scripts/collect_crowd.py --level 0 --location office
   python scripts/collect_crowd.py --level 1 --location office
   python scripts/collect_crowd.py --level 2 --location office
+
+  # Specify exact number of people
+  python scripts/collect_crowd.py --level 1 --num-people 4 --location office
         """
     )
 
@@ -306,6 +329,12 @@ Example:
         required=True,
         choices=[0, 1, 2],
         help="Crowd level (0=empty, 1=moderate, 2=crowded)"
+    )
+    parser.add_argument(
+        "--num-people",
+        type=int,
+        default=None,
+        help="Exact number of people (overrides level default)"
     )
     parser.add_argument(
         "--location",
@@ -356,6 +385,7 @@ Example:
         output_dir=args.output,
         level=args.level,
         location=args.location,
+        num_people=args.num_people,
         samples_per_file=args.samples,
         num_files=args.num_files,
         timeout_sec=args.timeout,

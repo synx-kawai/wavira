@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Multi-Zone Crowd Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 :root {
     --bg-primary: #0d1117;
@@ -381,20 +382,30 @@ body {
 .graph-legend {
     display: flex;
     justify-content: center;
-    gap: 16px;
-    font-size: 11px;
-    color: var(--text-secondary);
+    gap: 20px;
+    font-size: 12px;
+    color: var(--text-primary);
+    padding: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-top: 8px;
 }
 
 .graph-legend-item {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+}
+
+.graph-legend-item .line {
+    width: 20px;
+    height: 3px;
+    border-radius: 2px;
 }
 
 .graph-legend-item .dot {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
 }
 
@@ -404,6 +415,84 @@ body {
     background: var(--bg-tertiary);
     border-radius: 6px;
     margin-top: 8px;
+}
+
+/* Hourly Chart Section */
+.hourly-section {
+    margin-top: 16px;
+}
+
+.hourly-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.hourly-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.hourly-title {
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.hourly-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.hourly-controls select {
+    padding: 6px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.hourly-chart-container {
+    position: relative;
+    height: 250px;
+}
+
+.hourly-legend {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.hourly-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.hourly-legend-item .bar {
+    width: 16px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+.history-link {
+    color: var(--accent-blue);
+    text-decoration: none;
+    font-size: 14px;
+}
+
+.history-link:hover {
+    text-decoration: underline;
 }
 </style>
 </head>
@@ -458,6 +547,29 @@ body {
         </div>
     </div>
 
+    <!-- Hourly Average Section -->
+    <div class="hourly-section">
+        <div class="hourly-card">
+            <div class="hourly-header">
+                <div class="hourly-title">
+                    📊 時間帯別平均
+                </div>
+                <div class="hourly-controls">
+                    <select id="hourlyPeriod" onchange="loadHourlyData()">
+                        <option value="6">過去6時間</option>
+                        <option value="12">過去12時間</option>
+                        <option value="24" selected>過去24時間</option>
+                        <option value="48">過去48時間</option>
+                    </select>
+                    <a href="history.html" class="history-link">詳細履歴 →</a>
+                </div>
+            </div>
+            <div class="hourly-chart-container">
+                <canvas id="hourlyChart"></canvas>
+            </div>
+        </div>
+    </div>
+
     <!-- Floor Map -->
     <div class="floor-map-card">
         <h3 style="margin-bottom: 16px;">フロアマップ</h3>
@@ -478,19 +590,25 @@ let devices = {};
 let zones = {};
 let deviceHistory = {}; // { deviceId: { rssi: [], amplitude: [], breathRatio: [], timestamps: [] } }
 let deviceCanvases = {}; // { deviceId: { signal: canvas, waveform: canvas } }
+let wsConnection = null;
+let hourlyChart = null;
 
 // Connect to WebSocket
 function connect() {
     const ws = new WebSocket('ws://localhost:8765');
+    wsConnection = ws;
 
     ws.onopen = () => {
         connected = true;
         document.getElementById('statusDot').classList.add('connected');
         document.getElementById('statusText').textContent = '接続済み';
+        // Load hourly data on connect
+        loadHourlyData();
     };
 
     ws.onclose = () => {
         connected = false;
+        wsConnection = null;
         document.getElementById('statusDot').classList.remove('connected');
         document.getElementById('statusText').textContent = '再接続中...';
         setTimeout(connect, 2000);
@@ -501,6 +619,8 @@ function connect() {
             const data = JSON.parse(e.data);
             if (data.type === 'status') {
                 updateStatus(data);
+            } else if (data.type === 'hourly_summary') {
+                displayHourlySummary(data.data);
             } else if (data.device_id) {
                 updateDevice(data);
             }
@@ -632,15 +752,15 @@ function createDeviceGraphCard(dev, container) {
         </div>
         <div class="graph-legend">
             <div class="graph-legend-item">
-                <div class="dot" style="background: var(--accent-blue)"></div>
-                <span>RSSI</span>
+                <div class="line" style="background: var(--accent-blue)"></div>
+                <span>RSSI (電波強度)</span>
             </div>
             <div class="graph-legend-item">
-                <div class="dot" style="background: var(--accent-green)"></div>
-                <span>振幅</span>
+                <div class="line" style="background: var(--accent-green)"></div>
+                <span>振幅 (CSI変動)</span>
             </div>
             <div class="graph-legend-item">
-                <div class="dot" style="background: var(--accent-yellow)"></div>
+                <div class="line" style="background: var(--accent-yellow)"></div>
                 <span>呼吸比率</span>
             </div>
         </div>
@@ -953,6 +1073,147 @@ window.addEventListener('resize', () => {
         resizeCanvas(info.waveform);
     });
 });
+
+// Load hourly data from server
+function loadHourlyData() {
+    if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) return;
+
+    const hours = parseInt(document.getElementById('hourlyPeriod').value);
+    wsConnection.send(JSON.stringify({
+        type: 'get_hourly_summary',
+        hours: hours
+    }));
+}
+
+// Display hourly summary chart
+function displayHourlySummary(data) {
+    if (!data || data.length === 0) {
+        // Show empty state
+        if (hourlyChart) {
+            hourlyChart.destroy();
+            hourlyChart = null;
+        }
+        return;
+    }
+
+    // Get selected period
+    const selectedPeriod = parseInt(document.getElementById('hourlyPeriod').value);
+    const currentHour = new Date().getHours();
+
+    // Group by hour
+    const hourlyData = {};
+    for (const row of data) {
+        const hour = row.hour.substring(11, 13) + ':00';
+        if (!hourlyData[hour]) {
+            hourlyData[hour] = [];
+        }
+        hourlyData[hour].push(row.avg_crowd_level * 100);
+    }
+
+    // Calculate which hours to display based on selected period
+    const hours = [];
+    const avgValues = [];
+    const maxValues = [];
+
+    // For periods <= 24 hours, show only relevant hours from current time backwards
+    // For periods > 24 hours (48h, 168h), show all 24 hours in order (00:00-23:00)
+    if (selectedPeriod > 24) {
+        // Show full 24-hour range for multi-day periods
+        for (let h = 0; h < 24; h++) {
+            const hourStr = h.toString().padStart(2, '0') + ':00';
+            hours.push(hourStr);
+
+            if (hourlyData[hourStr]) {
+                const values = hourlyData[hourStr];
+                avgValues.push(values.reduce((a, b) => a + b, 0) / values.length);
+                maxValues.push(Math.max(...values));
+            } else {
+                avgValues.push(0);
+                maxValues.push(0);
+            }
+        }
+    } else {
+        // Show only relevant hours from current time backwards
+        for (let i = selectedPeriod - 1; i >= 0; i--) {
+            let h = (currentHour - i + 24) % 24;
+            const hourStr = h.toString().padStart(2, '0') + ':00';
+            hours.push(hourStr);
+
+            if (hourlyData[hourStr]) {
+                const values = hourlyData[hourStr];
+                avgValues.push(values.reduce((a, b) => a + b, 0) / values.length);
+                maxValues.push(Math.max(...values));
+            } else {
+                avgValues.push(0);
+                maxValues.push(0);
+            }
+        }
+    }
+
+    // Destroy existing chart
+    if (hourlyChart) {
+        hourlyChart.destroy();
+    }
+
+    // Create new chart
+    const ctx = document.getElementById('hourlyChart').getContext('2d');
+    hourlyChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: hours,
+            datasets: [
+                {
+                    label: '平均',
+                    data: avgValues,
+                    backgroundColor: 'rgba(88, 166, 255, 0.6)',
+                    borderColor: '#58a6ff',
+                    borderWidth: 1
+                },
+                {
+                    label: '最大',
+                    data: maxValues,
+                    backgroundColor: 'rgba(248, 81, 73, 0.6)',
+                    borderColor: '#f85149',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: '混雑率 (%)',
+                        color: '#8b949e'
+                    },
+                    grid: { color: '#30363d' },
+                    ticks: { color: '#8b949e' }
+                },
+                x: {
+                    grid: { color: '#30363d' },
+                    ticks: { color: '#8b949e' }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: { color: '#e8e8e8' }
+                }
+            }
+        }
+    });
+}
+
+// Auto-refresh hourly data every 60 seconds
+setInterval(() => {
+    if (connected) {
+        loadHourlyData();
+    }
+}, 60000);
 
 // Initialize
 connect();
