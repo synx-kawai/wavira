@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Zone Crowd Monitor</title>
+<style>
+:root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --border-color: #30363d;
+    --text-primary: #f0f6fc;
+    --text-secondary: #8b949e;
+    --accent-green: #3fb950;
+    --accent-yellow: #d29922;
+    --accent-orange: #db6d28;
+    --accent-red: #f85149;
+    --accent-blue: #58a6ff;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+}
+
+.app {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 16px;
+}
+
+/* Header */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.header-title {
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.header-status {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent-red);
+}
+
+.status-dot.connected { background: var(--accent-green); }
+
+/* Summary Card */
+.summary-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+}
+
+.summary-item {
+    text-align: center;
+}
+
+.summary-value {
+    font-size: 48px;
+    font-weight: 700;
+}
+
+.summary-value.green { color: var(--accent-green); }
+.summary-value.yellow { color: var(--accent-yellow); }
+.summary-value.red { color: var(--accent-red); }
+
+.summary-label {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-top: 4px;
+}
+
+/* Zone Grid */
+.zone-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 16px;
+}
+
+/* Zone Card */
+.zone-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    transition: border-color 0.3s;
+}
+
+.zone-card.alert {
+    border-color: var(--accent-red);
+    animation: alert-pulse 1s infinite;
+}
+
+@keyframes alert-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.4); }
+    50% { box-shadow: 0 0 0 10px rgba(248, 81, 73, 0); }
+}
+
+.zone-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.zone-name {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.zone-status {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.zone-status.empty { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
+.zone-status.low { background: rgba(88, 166, 255, 0.2); color: var(--accent-blue); }
+.zone-status.medium { background: rgba(210, 153, 34, 0.2); color: var(--accent-yellow); }
+.zone-status.high { background: rgba(248, 81, 73, 0.2); color: var(--accent-red); }
+
+/* Capacity Bar */
+.capacity-bar {
+    height: 24px;
+    background: var(--bg-tertiary);
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 12px 0;
+    position: relative;
+}
+
+.capacity-fill {
+    height: 100%;
+    border-radius: 12px;
+    transition: width 0.5s ease, background 0.3s;
+}
+
+.capacity-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 12px;
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+/* Device List */
+.device-list {
+    margin-top: 16px;
+}
+
+.device-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.device-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 12px;
+}
+
+.device-indicator.offline { background: var(--accent-red); }
+
+.device-info {
+    flex: 1;
+}
+
+.device-name {
+    font-weight: 500;
+}
+
+.device-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.device-status {
+    text-align: right;
+}
+
+.device-presence {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.device-presence.present { color: var(--accent-green); }
+.device-presence.absent { color: var(--text-secondary); }
+
+/* Floor Map */
+.floor-map-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 16px;
+}
+
+.floor-map {
+    position: relative;
+    height: 300px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.map-device {
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transform: translate(-50%, -50%);
+    border: 3px solid;
+    background: var(--bg-secondary);
+    transition: all 0.3s;
+}
+
+.map-device.present {
+    animation: map-pulse 2s infinite;
+}
+
+@keyframes map-pulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    50% { transform: translate(-50%, -50%) scale(1.1); }
+}
+
+.map-device-icon {
+    font-size: 20px;
+}
+
+.map-device-name {
+    font-size: 10px;
+    margin-top: 2px;
+}
+
+/* Alert Banner */
+.alert-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 12px 16px;
+    background: var(--accent-red);
+    color: white;
+    text-align: center;
+    font-weight: 600;
+    transform: translateY(-100%);
+    transition: transform 0.3s ease;
+    z-index: 1000;
+}
+
+.alert-banner.visible {
+    transform: translateY(0);
+}
+</style>
+</head>
+<body>
+
+<div class="alert-banner" id="alertBanner">
+    ⚠️ 混雑エリアがあります
+</div>
+
+<div class="app">
+    <header class="header">
+        <h1 class="header-title">🏢 Multi-Zone Crowd Monitor</h1>
+        <div class="header-status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">接続中...</span>
+            <span>デバイス: <span id="deviceCount">0</span></span>
+        </div>
+    </header>
+
+    <!-- Summary -->
+    <div class="summary-card">
+        <div class="summary-item">
+            <div class="summary-value green" id="totalPresent">0</div>
+            <div class="summary-label">検出人数（合計）</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-value" id="activeZones">0</div>
+            <div class="summary-label">アクティブゾーン</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-value" id="onlineDevices">0</div>
+            <div class="summary-label">オンラインデバイス</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-value" id="alertZones">0</div>
+            <div class="summary-label">混雑アラート</div>
+        </div>
+    </div>
+
+    <!-- Zone Cards -->
+    <div class="zone-grid" id="zoneGrid">
+        <!-- Zones will be dynamically added here -->
+    </div>
+
+    <!-- Floor Map -->
+    <div class="floor-map-card">
+        <h3 style="margin-bottom: 16px;">フロアマップ</h3>
+        <div class="floor-map" id="floorMap">
+            <!-- Devices will be dynamically added here -->
+        </div>
+    </div>
+</div>
+
+<script>
+// State
+let connected = false;
+let devices = {};
+let zones = {};
+
+// Connect to WebSocket
+function connect() {
+    const ws = new WebSocket('ws://localhost:8765');
+
+    ws.onopen = () => {
+        connected = true;
+        document.getElementById('statusDot').classList.add('connected');
+        document.getElementById('statusText').textContent = '接続済み';
+    };
+
+    ws.onclose = () => {
+        connected = false;
+        document.getElementById('statusDot').classList.remove('connected');
+        document.getElementById('statusText').textContent = '再接続中...';
+        setTimeout(connect, 2000);
+    };
+
+    ws.onmessage = (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            if (data.type === 'status') {
+                updateStatus(data);
+            } else if (data.device_id) {
+                updateDevice(data);
+            }
+        } catch (err) {
+            console.error('Parse error:', err);
+        }
+    };
+}
+
+// Update status from server
+function updateStatus(status) {
+    // Update devices
+    if (status.devices) {
+        status.devices.forEach(dev => {
+            devices[dev.id] = dev;
+        });
+    }
+
+    // Update zones
+    if (status.zones) {
+        zones = status.zones;
+        renderZones();
+    }
+
+    updateSummary();
+}
+
+// Update individual device data
+function updateDevice(data) {
+    const deviceId = data.device_id;
+
+    if (!devices[deviceId]) {
+        devices[deviceId] = {
+            id: deviceId,
+            name: data.device_name || deviceId,
+            zone: data.zone || 'default',
+            color: data.color || '#3fb950',
+            connected: true,
+        };
+    }
+
+    devices[deviceId].rssi = data.rssi;
+    devices[deviceId].breath = data.breath;
+    devices[deviceId].lastUpdate = Date.now();
+    devices[deviceId].connected = true;
+
+    // Update zone presence
+    const zoneId = devices[deviceId].zone;
+    if (zones[zoneId]) {
+        let present = 0;
+        Object.values(devices).forEach(dev => {
+            if (dev.zone === zoneId && dev.breath?.present) {
+                present++;
+            }
+        });
+        zones[zoneId].total_present = present;
+    }
+
+    renderZones();
+    updateSummary();
+    updateFloorMap();
+}
+
+// Render zone cards
+function renderZones() {
+    const grid = document.getElementById('zoneGrid');
+
+    Object.entries(zones).forEach(([zoneId, zone]) => {
+        let card = document.getElementById(`zone-${zoneId}`);
+
+        if (!card) {
+            card = document.createElement('div');
+            card.id = `zone-${zoneId}`;
+            card.className = 'zone-card';
+            grid.appendChild(card);
+        }
+
+        const present = zone.total_present || 0;
+        const capacity = zone.capacity || 10;
+        const ratio = present / capacity;
+
+        let statusClass, statusText;
+        if (present === 0) {
+            statusClass = 'empty';
+            statusText = '空き';
+        } else if (ratio < 0.5) {
+            statusClass = 'low';
+            statusText = '少ない';
+        } else if (ratio < 0.8) {
+            statusClass = 'medium';
+            statusText = 'やや混雑';
+        } else {
+            statusClass = 'high';
+            statusText = '混雑';
+        }
+
+        // Check alert
+        if (present >= (zone.alert_threshold || capacity * 0.8)) {
+            card.classList.add('alert');
+        } else {
+            card.classList.remove('alert');
+        }
+
+        // Get color based on ratio
+        let barColor;
+        if (ratio < 0.5) barColor = 'var(--accent-green)';
+        else if (ratio < 0.8) barColor = 'var(--accent-yellow)';
+        else barColor = 'var(--accent-red)';
+
+        // Get zone devices
+        const zoneDevices = Object.values(devices).filter(d => d.zone === zoneId);
+
+        card.innerHTML = `
+            <div class="zone-header">
+                <span class="zone-name">${zone.name}</span>
+                <span class="zone-status ${statusClass}">${statusText}</span>
+            </div>
+            <div class="capacity-bar">
+                <div class="capacity-fill" style="width: ${Math.min(ratio * 100, 100)}%; background: ${barColor}"></div>
+                <span class="capacity-text">${present} / ${capacity}</span>
+            </div>
+            <div class="device-list">
+                ${zoneDevices.map(dev => `
+                    <div class="device-item">
+                        <div class="device-indicator" style="background: ${dev.connected ? dev.color : 'var(--accent-red)'}"></div>
+                        <div class="device-info">
+                            <div class="device-name">${dev.name}</div>
+                            <div class="device-meta">RSSI: ${dev.rssi || '--'} dBm</div>
+                        </div>
+                        <div class="device-status">
+                            <div class="device-presence ${dev.breath?.present ? 'present' : 'absent'}">
+                                ${dev.breath?.present ? '👤 検出' : '-- 未検出'}
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    });
+}
+
+// Update summary
+function updateSummary() {
+    let totalPresent = 0;
+    let activeZones = 0;
+    let onlineDevices = 0;
+    let alertZones = 0;
+
+    Object.values(zones).forEach(zone => {
+        const present = zone.total_present || 0;
+        totalPresent += present;
+        if (present > 0) activeZones++;
+        if (present >= (zone.alert_threshold || zone.capacity * 0.8)) alertZones++;
+    });
+
+    Object.values(devices).forEach(dev => {
+        if (dev.connected) onlineDevices++;
+    });
+
+    document.getElementById('totalPresent').textContent = totalPresent;
+    document.getElementById('activeZones').textContent = activeZones;
+    document.getElementById('onlineDevices').textContent = onlineDevices;
+    document.getElementById('alertZones').textContent = alertZones;
+    document.getElementById('deviceCount').textContent = Object.keys(devices).length;
+
+    // Update total present color
+    const totalEl = document.getElementById('totalPresent');
+    totalEl.className = 'summary-value';
+    if (totalPresent === 0) totalEl.classList.add('green');
+    else if (alertZones > 0) totalEl.classList.add('red');
+    else totalEl.classList.add('yellow');
+
+    // Show alert banner
+    const banner = document.getElementById('alertBanner');
+    if (alertZones > 0) {
+        banner.classList.add('visible');
+    } else {
+        banner.classList.remove('visible');
+    }
+}
+
+// Update floor map
+function updateFloorMap() {
+    const map = document.getElementById('floorMap');
+    const mapRect = map.getBoundingClientRect();
+
+    Object.values(devices).forEach(dev => {
+        let marker = document.getElementById(`map-${dev.id}`);
+
+        if (!marker) {
+            marker = document.createElement('div');
+            marker.id = `map-${dev.id}`;
+            marker.className = 'map-device';
+            map.appendChild(marker);
+        }
+
+        // Position (default to center if not specified)
+        const x = 50 + (devices[dev.id]?.position?.x || 0) * 5;
+        const y = 50 + (devices[dev.id]?.position?.y || 0) * 5;
+        marker.style.left = `${x}%`;
+        marker.style.top = `${y}%`;
+        marker.style.borderColor = dev.color;
+
+        const isPresent = dev.breath?.present;
+        marker.className = `map-device ${isPresent ? 'present' : ''}`;
+
+        marker.innerHTML = `
+            <span class="map-device-icon">${isPresent ? '👤' : '📡'}</span>
+            <span class="map-device-name">${dev.name}</span>
+        `;
+    });
+}
+
+// Initialize
+connect();
+</script>
+</body>
+</html>
