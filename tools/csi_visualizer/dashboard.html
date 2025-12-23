@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crowd Level Monitor - WiFi CSI</title>
+<style>
+:root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --border-color: #30363d;
+    --text-primary: #f0f6fc;
+    --text-secondary: #8b949e;
+    --accent-green: #3fb950;
+    --accent-yellow: #d29922;
+    --accent-orange: #db6d28;
+    --accent-red: #f85149;
+    --accent-blue: #58a6ff;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+}
+
+.app {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 16px;
+}
+
+/* Header */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.header-title {
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.header-status {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent-red);
+    animation: pulse 2s infinite;
+}
+
+.status-dot.connected {
+    background: var(--accent-green);
+    animation: none;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.status-text {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+/* Main Grid */
+.main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+@media (max-width: 768px) {
+    .main-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Card */
+.card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.card-title {
+    font-size: 14px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Crowd Level Card */
+.crowd-card {
+    grid-column: 1 / -1;
+}
+
+.crowd-display {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+}
+
+.crowd-gauge {
+    position: relative;
+    width: 200px;
+    height: 200px;
+}
+
+.gauge-svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+}
+
+.gauge-bg {
+    fill: none;
+    stroke: var(--bg-tertiary);
+    stroke-width: 20;
+}
+
+.gauge-fill {
+    fill: none;
+    stroke: var(--accent-green);
+    stroke-width: 20;
+    stroke-linecap: round;
+    stroke-dasharray: 251.2;
+    stroke-dashoffset: 251.2;
+    transition: stroke-dashoffset 0.5s ease, stroke 0.3s ease;
+}
+
+.gauge-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+}
+
+.gauge-value {
+    font-size: 48px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.gauge-label {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+.crowd-info {
+    flex: 1;
+}
+
+.crowd-level {
+    font-size: 32px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.crowd-level.empty { color: var(--accent-green); }
+.crowd-level.low { color: var(--accent-blue); }
+.crowd-level.medium { color: var(--accent-yellow); }
+.crowd-level.high { color: var(--accent-red); }
+
+.crowd-description {
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+.crowd-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+}
+
+.stat-item {
+    background: var(--bg-tertiary);
+    padding: 12px;
+    border-radius: 6px;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.stat-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* Level Bar */
+.level-bar {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--bg-tertiary);
+    margin-top: 16px;
+}
+
+.level-segment {
+    flex: 1;
+    transition: opacity 0.3s;
+}
+
+.level-segment.active {
+    opacity: 1;
+}
+
+.level-segment.inactive {
+    opacity: 0.2;
+}
+
+.level-empty { background: var(--accent-green); }
+.level-low { background: var(--accent-blue); }
+.level-medium { background: var(--accent-yellow); }
+.level-high { background: var(--accent-red); }
+
+/* Trend Chart */
+.trend-card {
+    grid-column: 1 / -1;
+}
+
+.chart-container {
+    position: relative;
+    height: 200px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+#trendCanvas {
+    width: 100%;
+    height: 100%;
+}
+
+.chart-legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+    justify-content: center;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+/* Breathing Card */
+.breathing-status {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-bottom: 16px;
+}
+
+.breathing-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+}
+
+.breathing-icon.breathing {
+    background: rgba(63, 185, 80, 0.2);
+    color: var(--accent-green);
+}
+
+.breathing-icon.holding {
+    background: rgba(248, 81, 73, 0.2);
+    color: var(--accent-red);
+    animation: pulse 0.5s infinite;
+}
+
+.breathing-text {
+    flex: 1;
+}
+
+.breathing-label {
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.breathing-rate {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.breathing-meter {
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.breathing-meter-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));
+    transition: width 0.3s;
+    border-radius: 3px;
+}
+
+/* Signal Info */
+.signal-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.signal-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.signal-item:last-child {
+    border-bottom: none;
+}
+
+.signal-label {
+    color: var(--text-secondary);
+}
+
+/* Alert Banner */
+.alert-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 12px 16px;
+    background: var(--accent-red);
+    color: white;
+    text-align: center;
+    font-weight: 600;
+    transform: translateY(-100%);
+    transition: transform 0.3s ease;
+    z-index: 1000;
+}
+
+.alert-banner.visible {
+    transform: translateY(0);
+}
+</style>
+</head>
+<body>
+
+<div class="alert-banner" id="alertBanner">
+    ⚠️ 混雑度が高くなっています
+</div>
+
+<div class="app">
+    <header class="header">
+        <h1 class="header-title">🏢 Crowd Level Monitor</h1>
+        <div class="header-status">
+            <div class="status-dot" id="statusDot"></div>
+            <span class="status-text" id="statusText">接続中...</span>
+            <span class="status-text">FPS: <span id="fpsDisplay">0</span></span>
+        </div>
+    </header>
+
+    <div class="main-grid">
+        <!-- Crowd Level Card -->
+        <div class="card crowd-card">
+            <div class="card-title">混雑状況</div>
+            <div class="crowd-display">
+                <div class="crowd-gauge">
+                    <svg class="gauge-svg" viewBox="0 0 100 100">
+                        <circle class="gauge-bg" cx="50" cy="50" r="40"/>
+                        <circle class="gauge-fill" id="gaugeFill" cx="50" cy="50" r="40"/>
+                    </svg>
+                    <div class="gauge-text">
+                        <div class="gauge-value" id="peopleCount">0</div>
+                        <div class="gauge-label">推定人数</div>
+                    </div>
+                </div>
+                <div class="crowd-info">
+                    <div class="crowd-level empty" id="crowdLevel">空き</div>
+                    <div class="crowd-description" id="crowdDesc">人の存在は検出されていません</div>
+                    <div class="crowd-stats">
+                        <div class="stat-item">
+                            <div class="stat-value" id="maxPeople">0</div>
+                            <div class="stat-label">最大人数</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="avgPeople">0.0</div>
+                            <div class="stat-label">平均人数</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="confidence">--%</div>
+                            <div class="stat-label">信頼度</div>
+                        </div>
+                    </div>
+                    <div class="level-bar">
+                        <div class="level-segment level-empty active" id="segEmpty"></div>
+                        <div class="level-segment level-low inactive" id="segLow"></div>
+                        <div class="level-segment level-medium inactive" id="segMedium"></div>
+                        <div class="level-segment level-high inactive" id="segHigh"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trend Chart -->
+        <div class="card trend-card">
+            <div class="card-title">時系列トレンド (過去5分)</div>
+            <div class="chart-container">
+                <canvas id="trendCanvas"></canvas>
+            </div>
+            <div class="chart-legend">
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: var(--accent-blue)"></div>
+                    <span>推定人数</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: var(--accent-green)"></div>
+                    <span>存在検知</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Breathing Detection -->
+        <div class="card">
+            <div class="card-title">呼吸検知</div>
+            <div class="breathing-status" id="breathingStatus">
+                <div class="breathing-icon breathing" id="breathingIcon">🫁</div>
+                <div class="breathing-text">
+                    <div class="breathing-label" id="breathingLabel">検出中...</div>
+                    <div class="breathing-rate" id="breathingRate">--回/分</div>
+                </div>
+            </div>
+            <div class="breathing-meter">
+                <div class="breathing-meter-fill" id="breathingMeter" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- Signal Info -->
+        <div class="card">
+            <div class="card-title">信号情報</div>
+            <div class="signal-grid">
+                <div class="signal-item">
+                    <span class="signal-label">RSSI</span>
+                    <span id="rssiValue">-- dBm</span>
+                </div>
+                <div class="signal-item">
+                    <span class="signal-label">チャンネル</span>
+                    <span id="channelValue">--</span>
+                </div>
+                <div class="signal-item">
+                    <span class="signal-label">サブキャリア数</span>
+                    <span id="subcarrierValue">--</span>
+                </div>
+                <div class="signal-item">
+                    <span class="signal-label">パケット</span>
+                    <span id="packetValue">--</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Constants
+const MAX_HISTORY = 300; // 5 minutes at 1Hz
+const GAUGE_CIRCUMFERENCE = 251.2;
+
+// State
+let connected = false;
+let history = {
+    timestamps: [],
+    peopleCount: [],
+    presence: []
+};
+let maxPeopleEver = 0;
+let totalPeopleSum = 0;
+let totalPeopleCount = 0;
+let frameCount = 0;
+let lastFpsTime = performance.now();
+
+// Canvas setup
+const trendCanvas = document.getElementById('trendCanvas');
+const trendCtx = trendCanvas.getContext('2d');
+
+function resizeCanvas() {
+    const rect = trendCanvas.parentElement.getBoundingClientRect();
+    trendCanvas.width = rect.width;
+    trendCanvas.height = rect.height;
+}
+
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// WebSocket connection
+function connect() {
+    const ws = new WebSocket('ws://localhost:8765');
+
+    ws.onopen = () => {
+        connected = true;
+        document.getElementById('statusDot').classList.add('connected');
+        document.getElementById('statusText').textContent = '接続済み';
+    };
+
+    ws.onclose = () => {
+        connected = false;
+        document.getElementById('statusDot').classList.remove('connected');
+        document.getElementById('statusText').textContent = '再接続中...';
+        setTimeout(connect, 2000);
+    };
+
+    ws.onmessage = (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            processData(data);
+            frameCount++;
+        } catch (err) {
+            console.error('Parse error:', err);
+        }
+    };
+}
+
+// Process incoming data
+function processData(data) {
+    const now = Date.now();
+
+    // Update FPS counter
+    if (now - lastFpsTime >= 1000) {
+        document.getElementById('fpsDisplay').textContent = frameCount;
+        frameCount = 0;
+        lastFpsTime = now;
+    }
+
+    // Signal info
+    if (data.rssi) document.getElementById('rssiValue').textContent = data.rssi + ' dBm';
+    if (data.ch) document.getElementById('channelValue').textContent = data.ch;
+    if (data.amps) document.getElementById('subcarrierValue').textContent = data.amps.length;
+    if (data.pkt) document.getElementById('packetValue').textContent = data.pkt;
+
+    // Breathing data
+    if (data.breath) {
+        updateBreathing(data.breath);
+    }
+
+    // Crowd estimation (simulated from breathing/presence for now)
+    // In production, this would come from the ML model
+    const isPresent = data.breath?.present || false;
+    const breathRatio = data.breath?.breath_ratio || 0;
+
+    // Estimate people count based on signal variance (simplified)
+    let estimatedPeople = 0;
+    if (isPresent) {
+        // Use breath ratio and signal variance to estimate
+        const avgAmp = data.amps ? data.amps.reduce((a, b) => a + b, 0) / data.amps.length : 0;
+        const variance = data.amps ?
+            data.amps.reduce((sum, v) => sum + Math.pow(v - avgAmp, 2), 0) / data.amps.length : 0;
+
+        // Simple heuristic (would be replaced by ML model in production)
+        estimatedPeople = Math.max(1, Math.round(variance / 100));
+        estimatedPeople = Math.min(estimatedPeople, 10);
+    }
+
+    updateCrowdDisplay(estimatedPeople, isPresent, breathRatio);
+
+    // Add to history (downsample to ~1 sample per second)
+    if (history.timestamps.length === 0 || now - history.timestamps[history.timestamps.length - 1] >= 1000) {
+        history.timestamps.push(now);
+        history.peopleCount.push(estimatedPeople);
+        history.presence.push(isPresent ? 1 : 0);
+
+        // Trim old data
+        while (history.timestamps.length > MAX_HISTORY) {
+            history.timestamps.shift();
+            history.peopleCount.shift();
+            history.presence.shift();
+        }
+
+        // Update stats
+        if (estimatedPeople > 0) {
+            maxPeopleEver = Math.max(maxPeopleEver, estimatedPeople);
+            totalPeopleSum += estimatedPeople;
+            totalPeopleCount++;
+        }
+
+        drawTrend();
+    }
+}
+
+// Update breathing display
+function updateBreathing(breath) {
+    const icon = document.getElementById('breathingIcon');
+    const label = document.getElementById('breathingLabel');
+    const rate = document.getElementById('breathingRate');
+    const meter = document.getElementById('breathingMeter');
+
+    const isBreathing = breath.breathing;
+    const breathRate = breath.breath_rate || 0;
+    const ratio = breath.breath_ratio || 0;
+
+    icon.className = 'breathing-icon ' + (isBreathing ? 'breathing' : 'holding');
+    icon.textContent = isBreathing ? '🫁' : '⚠️';
+
+    label.textContent = isBreathing ? '呼吸検出中' : '息止め検出';
+    rate.textContent = breathRate > 0 ? `${breathRate.toFixed(0)}回/分` : '--回/分';
+    meter.style.width = Math.min(ratio * 100, 100) + '%';
+}
+
+// Update crowd display
+function updateCrowdDisplay(people, present, confidence) {
+    // Update gauge
+    const gaugeFill = document.getElementById('gaugeFill');
+    const offset = GAUGE_CIRCUMFERENCE * (1 - Math.min(people / 10, 1));
+    gaugeFill.style.strokeDashoffset = offset;
+
+    // Set gauge color based on level
+    let color;
+    if (people === 0) color = 'var(--accent-green)';
+    else if (people <= 2) color = 'var(--accent-blue)';
+    else if (people <= 5) color = 'var(--accent-yellow)';
+    else color = 'var(--accent-red)';
+    gaugeFill.style.stroke = color;
+
+    // Update count
+    document.getElementById('peopleCount').textContent = people;
+
+    // Update level text
+    const levelEl = document.getElementById('crowdLevel');
+    const descEl = document.getElementById('crowdDesc');
+    let level, desc, className;
+
+    if (people === 0) {
+        level = '空き';
+        desc = '人の存在は検出されていません';
+        className = 'empty';
+    } else if (people <= 2) {
+        level = '少ない';
+        desc = `${people}人が検出されています`;
+        className = 'low';
+    } else if (people <= 5) {
+        level = 'やや混雑';
+        desc = `${people}人が検出されています。混雑に注意`;
+        className = 'medium';
+    } else {
+        level = '混雑';
+        desc = `${people}人が検出されています。非常に混雑しています`;
+        className = 'high';
+        showAlert();
+    }
+
+    levelEl.textContent = level;
+    levelEl.className = 'crowd-level ' + className;
+    descEl.textContent = desc;
+
+    // Update level bar
+    updateLevelBar(people);
+
+    // Update stats
+    document.getElementById('maxPeople').textContent = maxPeopleEver;
+    document.getElementById('avgPeople').textContent =
+        totalPeopleCount > 0 ? (totalPeopleSum / totalPeopleCount).toFixed(1) : '0.0';
+    document.getElementById('confidence').textContent =
+        (confidence * 100).toFixed(0) + '%';
+}
+
+// Update level bar segments
+function updateLevelBar(people) {
+    const segments = ['segEmpty', 'segLow', 'segMedium', 'segHigh'];
+    let activeIndex;
+
+    if (people === 0) activeIndex = 0;
+    else if (people <= 2) activeIndex = 1;
+    else if (people <= 5) activeIndex = 2;
+    else activeIndex = 3;
+
+    segments.forEach((id, idx) => {
+        const el = document.getElementById(id);
+        el.className = el.className.replace(/active|inactive/g, '').trim();
+        el.classList.add(idx <= activeIndex ? 'active' : 'inactive');
+    });
+}
+
+// Show alert banner
+let alertTimeout;
+function showAlert() {
+    const banner = document.getElementById('alertBanner');
+    banner.classList.add('visible');
+
+    clearTimeout(alertTimeout);
+    alertTimeout = setTimeout(() => {
+        banner.classList.remove('visible');
+    }, 5000);
+}
+
+// Draw trend chart
+function drawTrend() {
+    const w = trendCanvas.width;
+    const h = trendCanvas.height;
+    const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+
+    // Clear
+    trendCtx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-tertiary').trim();
+    trendCtx.fillRect(0, 0, w, h);
+
+    if (history.timestamps.length < 2) return;
+
+    const plotW = w - padding.left - padding.right;
+    const plotH = h - padding.top - padding.bottom;
+
+    // Draw grid
+    trendCtx.strokeStyle = '#30363d';
+    trendCtx.lineWidth = 1;
+
+    // Horizontal lines
+    for (let i = 0; i <= 5; i++) {
+        const y = padding.top + (plotH / 5) * i;
+        trendCtx.beginPath();
+        trendCtx.moveTo(padding.left, y);
+        trendCtx.lineTo(w - padding.right, y);
+        trendCtx.stroke();
+    }
+
+    // Y-axis labels
+    trendCtx.fillStyle = '#8b949e';
+    trendCtx.font = '10px sans-serif';
+    trendCtx.textAlign = 'right';
+    for (let i = 0; i <= 5; i++) {
+        const val = 10 - i * 2;
+        const y = padding.top + (plotH / 5) * i;
+        trendCtx.fillText(val.toString(), padding.left - 5, y + 3);
+    }
+
+    // X-axis time labels
+    trendCtx.textAlign = 'center';
+    const timeLabels = ['5分前', '4分前', '3分前', '2分前', '1分前', '現在'];
+    for (let i = 0; i < timeLabels.length; i++) {
+        const x = padding.left + (plotW / 5) * i;
+        trendCtx.fillText(timeLabels[i], x, h - 10);
+    }
+
+    // Draw data lines
+    const maxTime = history.timestamps[history.timestamps.length - 1];
+    const minTime = maxTime - 5 * 60 * 1000; // 5 minutes ago
+
+    // People count line
+    trendCtx.strokeStyle = '#58a6ff';
+    trendCtx.lineWidth = 2;
+    trendCtx.beginPath();
+    let started = false;
+
+    for (let i = 0; i < history.timestamps.length; i++) {
+        const t = history.timestamps[i];
+        if (t < minTime) continue;
+
+        const x = padding.left + ((t - minTime) / (maxTime - minTime)) * plotW;
+        const y = padding.top + plotH - (history.peopleCount[i] / 10) * plotH;
+
+        if (!started) {
+            trendCtx.moveTo(x, y);
+            started = true;
+        } else {
+            trendCtx.lineTo(x, y);
+        }
+    }
+    trendCtx.stroke();
+
+    // Presence area
+    trendCtx.fillStyle = 'rgba(63, 185, 80, 0.2)';
+    trendCtx.beginPath();
+    started = false;
+    let lastX = padding.left;
+
+    for (let i = 0; i < history.timestamps.length; i++) {
+        const t = history.timestamps[i];
+        if (t < minTime) continue;
+
+        const x = padding.left + ((t - minTime) / (maxTime - minTime)) * plotW;
+        const y = history.presence[i] ? padding.top : padding.top + plotH;
+
+        if (!started) {
+            trendCtx.moveTo(x, padding.top + plotH);
+            started = true;
+        }
+        trendCtx.lineTo(x, y);
+        lastX = x;
+    }
+    trendCtx.lineTo(lastX, padding.top + plotH);
+    trendCtx.closePath();
+    trendCtx.fill();
+}
+
+// Initialize
+connect();
+setInterval(drawTrend, 1000);
+</script>
+</body>
+</html>
