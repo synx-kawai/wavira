@@ -1,4 +1,4 @@
-"""Neural network models for Wi-Fi-based person re-identification."""
+"""Neural network models for Wi-Fi CSI-based analysis."""
 
 from wavira.models.encoder import (
     TransformerEncoder,
@@ -7,6 +7,12 @@ from wavira.models.encoder import (
     get_encoder,
 )
 from wavira.models.whofi import WhoFi
+from wavira.models.crowd_estimator import (
+    CrowdEstimator,
+    CrowdEstimatorConfig,
+    CrowdEstimatorLight,
+    create_model,
+)
 
 __all__ = [
     "TransformerEncoder",
@@ -14,4 +20,8 @@ __all__ = [
     "BiLSTMEncoder",
     "get_encoder",
     "WhoFi",
+    "CrowdEstimator",
+    "CrowdEstimatorConfig",
+    "CrowdEstimatorLight",
+    "create_model",
 ]

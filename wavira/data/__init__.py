@@ -7,6 +7,7 @@ from wavira.data.preprocessing import (
     preprocess_csi,
 )
 from wavira.data.dataset import CSIDataset
+from wavira.data.crowd_dataset import CrowdDataset, SyntheticCrowdDataset
 
 __all__ = [
     "hampel_filter",
@@ -14,4 +15,6 @@ __all__ = [
     "extract_amplitude",
     "preprocess_csi",
     "CSIDataset",
+    "CrowdDataset",
+    "SyntheticCrowdDataset",
 ]
