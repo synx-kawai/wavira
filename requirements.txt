@@ -5,3 +5,14 @@ scikit-learn>=1.3.0
 tqdm>=4.65.0
 matplotlib>=3.7.0
 h5py>=3.7.0
+
+# API Server (Issue #14)
+fastapi>=0.109.0
+uvicorn>=0.27.0
+pydantic>=2.5.0
+pyyaml>=6.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+httpx>=0.26.0

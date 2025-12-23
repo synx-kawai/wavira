@@ -20,6 +20,14 @@ setup(
         "dev": [
             "pytest>=7.0.0",
             "pytest-cov>=4.0.0",
+            "pytest-asyncio>=0.23.0",
+            "httpx>=0.26.0",
+            "fastapi>=0.109.0",
+            "uvicorn>=0.27.0",
+            "pydantic>=2.5.0",
+            "pyyaml>=6.0.0",
+            "pyserial>=3.5",
+            "websockets>=12.0",
         ],
         "logging": [
             "tensorboard>=2.14.0",
