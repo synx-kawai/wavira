@@ -11,38 +11,26 @@ devices:
   # デバイス1: エントランス
   - id: "esp32-entrance"
     name: "エントランス"
-    port: "/dev/cu.usbserial-110"
+    port: "/dev/cu.usbserial-110" # 環境に合わせて変更してください (e.g., COM3, /dev/ttyUSB0)
     baud: 115200
     zone: "zone-a"
     position:
-      x: 0
+      x: -5
       y: 0
     color: "#3fb950"  # 緑
     enabled: true
 
-  # デバイス2: 会議室 (例)
-  # - id: "esp32-meeting"
-  #   name: "会議室"
-  #   port: "/dev/cu.usbserial-120"
-  #   baud: 115200
-  #   zone: "zone-b"
-  #   position:
-  #     x: 10
-  #     y: 0
-  #   color: "#58a6ff"  # 青
-  #   enabled: true
-
-  # デバイス3: 休憩室 (例)
-  # - id: "esp32-lounge"
-  #   name: "休憩室"
-  #   port: "/dev/cu.usbserial-130"
-  #   baud: 115200
-  #   zone: "zone-c"
-  #   position:
-  #     x: 5
-  #     y: 10
-  #   color: "#d29922"  # 黄
-  #   enabled: true
+  # デバイス2: 会議室
+  - id: "esp32-meeting"
+    name: "会議室"
+    port: "/dev/cu.usbserial-10" # 環境に合わせて変更してください (e.g., COM4, /dev/ttyUSB1)
+    baud: 115200
+    zone: "zone-b"
+    position:
+      x: 5
+      y: 0
+    color: "#58a6ff"  # 青
+    enabled: true
 
 # ゾーン設定
 zones:
