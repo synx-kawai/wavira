@@ -158,7 +158,7 @@ typedef struct {
     uint8_t agc_gain;
     int16_t noise_floor;
     uint16_t csi_len;
-    int8_t csi_data[256];  // Max CSI data length
+    int8_t csi_data[640];  // Max CSI data length (increased for HT40/multiple antennas)
 } csi_packet_t;
 
 // =============================================================================
@@ -170,7 +170,8 @@ static const uint8_t CONFIG_CSI_SEND_MAC[] = {0x1a, 0x00, 0x00, 0x00, 0x00, 0x00
 #ifdef CONFIG_CSI_OUTPUT_HTTP
 static EventGroupHandle_t s_wifi_event_group;
 static QueueHandle_t s_csi_queue;
-static SemaphoreHandle_t s_http_mutex;
+// Note: Mutex removed as http_send_csi_batch is only called from single http_sender_task.
+// If multiple tasks need to send HTTP requests in the future, add mutex protection.
 static volatile bool s_wifi_connected = false;
 static uint32_t s_total_packets_sent = 0;
 static uint32_t s_total_packets_failed = 0;
@@ -244,6 +245,18 @@ static void led_task(void *pvParameter)
 #ifdef CONFIG_CSI_OUTPUT_HTTP
 
 static int s_wifi_retry_count = 0;
+static esp_timer_handle_t s_reconnect_timer = NULL;
+
+/**
+ * @brief Timer callback for Wi-Fi reconnection with exponential backoff
+ * @note Using timer instead of vTaskDelay to avoid blocking the event loop
+ */
+static void wifi_reconnect_timer_cb(void *arg)
+{
+    ESP_LOGI(TAG, "Attempting Wi-Fi reconnection (attempt %d)...", s_wifi_retry_count + 1);
+    esp_wifi_connect();
+    s_wifi_retry_count++;
+}
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
@@ -256,13 +269,16 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 
         if (CONFIG_WAVIRA_WIFI_MAXIMUM_RETRY == 0 ||
             s_wifi_retry_count < CONFIG_WAVIRA_WIFI_MAXIMUM_RETRY) {
-            // Exponential backoff
-            int delay_ms = (1 << (s_wifi_retry_count > 5 ? 5 : s_wifi_retry_count)) * 100;
-            ESP_LOGI(TAG, "Wi-Fi disconnected, retrying in %d ms (attempt %d)...",
+            // Exponential backoff using timer (non-blocking)
+            uint64_t delay_ms = (1ULL << (s_wifi_retry_count > 5 ? 5 : s_wifi_retry_count)) * 100;
+            ESP_LOGI(TAG, "Wi-Fi disconnected, will retry in %llu ms (attempt %d)...",
                      delay_ms, s_wifi_retry_count + 1);
-            vTaskDelay(delay_ms / portTICK_PERIOD_MS);
-            esp_wifi_connect();
-            s_wifi_retry_count++;
+
+            // Schedule reconnection via timer to avoid blocking event loop
+            if (s_reconnect_timer) {
+                esp_timer_stop(s_reconnect_timer);
+                esp_timer_start_once(s_reconnect_timer, delay_ms * 1000);  // Convert to microseconds
+            }
         } else {
             ESP_LOGE(TAG, "Wi-Fi connection failed after %d attempts", s_wifi_retry_count);
             s_led_state = LED_ERROR;
@@ -281,6 +297,13 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 static void wifi_init_sta(void)
 {
     s_wifi_event_group = xEventGroupCreate();
+
+    // Create reconnection timer for non-blocking exponential backoff
+    const esp_timer_create_args_t reconnect_timer_args = {
+        .callback = &wifi_reconnect_timer_cb,
+        .name = "wifi_reconnect"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&reconnect_timer_args, &s_reconnect_timer));
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -329,6 +352,11 @@ static cJSON *csi_packet_to_json(csi_packet_t *pkt)
     if (!json) return NULL;
 
     cJSON_AddStringToObject(json, "device_id", CONFIG_WAVIRA_DEVICE_ID);
+    // TODO: For absolute timestamps, implement SNTP synchronization:
+    //   1. Call esp_sntp_init() and esp_sntp_setservername() at startup
+    //   2. Wait for SNTP sync: sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED
+    //   3. Use time() to get Unix timestamp instead of esp_timer_get_time()
+    // Current timestamp is milliseconds since boot (relative time)
     cJSON_AddNumberToObject(json, "timestamp", pkt->local_timestamp_ms);
     cJSON_AddNumberToObject(json, "seq", pkt->seq);
 
@@ -407,6 +435,11 @@ static esp_err_t http_send_csi_batch(csi_packet_t *packets, int count)
     }
 
     // HTTP client configuration
+    // TODO: For production deployment, enable HTTPS/TLS support:
+    //   1. Add CONFIG_WAVIRA_USE_HTTPS option in Kconfig
+    //   2. Set .transport_type = HTTP_TRANSPORT_OVER_SSL
+    //   3. Set .cert_pem = server_cert_pem (from embed file or config)
+    //   4. Consider using ESP-IDF certificate bundle: esp_crt_bundle_attach
     esp_http_client_config_t config = {
         .url = CONFIG_WAVIRA_BATCH_ENDPOINT,
         .method = HTTP_METHOD_POST,
@@ -498,12 +531,9 @@ static void http_sender_task(void *pvParameter)
         }
 
         if (should_send && s_wifi_connected) {
-            if (xSemaphoreTake(s_http_mutex, pdMS_TO_TICKS(1000))) {
-                http_send_csi_batch(batch, batch_count);
-                xSemaphoreGive(s_http_mutex);
-                batch_count = 0;
-                last_send_time = now;
-            }
+            http_send_csi_batch(batch, batch_count);
+            batch_count = 0;
+            last_send_time = now;
         }
     }
 }
@@ -611,7 +641,7 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
 #endif
 
         // Copy CSI data
-        pkt.csi_len = info->len > 256 ? 256 : info->len;
+        pkt.csi_len = info->len > 640 ? 640 : info->len;
         memcpy(pkt.csi_data, info->buf, pkt.csi_len);
 
         // Non-blocking queue send (drop if full)
@@ -851,12 +881,10 @@ void app_main(void)
     // HTTP Mode
     s_boot_time_ms = esp_timer_get_time() / 1000;
 
-    // Create queue and mutex
+    // Create CSI packet queue for buffering
     s_csi_queue = xQueueCreate(CONFIG_WAVIRA_BUFFER_SIZE, sizeof(csi_packet_t));
-    s_http_mutex = xSemaphoreCreateMutex();
-
-    if (!s_csi_queue || !s_http_mutex) {
-        ESP_LOGE(TAG, "Failed to create queue or mutex");
+    if (!s_csi_queue) {
+        ESP_LOGE(TAG, "Failed to create CSI queue");
         return;
     }
 
