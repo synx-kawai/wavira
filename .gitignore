@@ -23,3 +23,15 @@ esp-csi/**/dependencies.lock
 
 # CSI history database
 tools/csi_visualizer/history.db
+tools/csi_visualizer/devices.db
+
+# Temporary and backup files
+*.bak
+*.backup
+REVIEW_BODY.md
+
+# Serial logs (local debugging)
+serial_log*.txt
+
+# Build artifacts
+artifacts/
