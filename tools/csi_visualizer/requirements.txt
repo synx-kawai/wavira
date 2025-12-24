@@ -1,0 +1,25 @@
+# Wavira CSI Visualizer - Python Dependencies
+
+# Web framework
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0
+
+# YAML configuration
+pyyaml>=6.0
+
+# WebSocket support
+websockets>=11.0
+
+# MQTT client
+paho-mqtt>=1.6.0
+
+# Serial communication (for ESP32)
+pyserial>=3.5
+
+# Scientific computing (for CSI processing)
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Optional: secure password hashing
+bcrypt>=4.0.0

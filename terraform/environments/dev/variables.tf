@@ -18,6 +18,18 @@ variable "server_port" {
   default     = 8080
 }
 
+variable "mqtt_port" {
+  description = "MQTT broker port"
+  type        = number
+  default     = 1883
+}
+
+variable "ws_port" {
+  description = "WebSocket bridge port"
+  type        = number
+  default     = 8765
+}
+
 variable "app_dir" {
   description = "Application directory on server"
   type        = string

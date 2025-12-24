@@ -5,6 +5,16 @@ output "server_url" {
   value       = "http://${var.server_host}:${var.server_port}"
 }
 
+output "mqtt_broker_url" {
+  description = "MQTT broker URL for ESP32 devices"
+  value       = "mqtt://${var.server_host}:${var.mqtt_port}"
+}
+
+output "websocket_url" {
+  description = "WebSocket URL for dashboard"
+  value       = "ws://${var.server_host}:${var.ws_port}"
+}
+
 output "health_endpoint" {
   description = "Health check endpoint"
   value       = "http://${var.server_host}:${var.server_port}/api/v1/health"
