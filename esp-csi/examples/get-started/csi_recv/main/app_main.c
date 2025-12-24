@@ -30,6 +30,9 @@
 
 static const char *TAG = "wavira_csi";
 
+// LED Configuration (GPIO2 = built-in blue LED on most ESP32 DevKit boards)
+#define LED_GPIO 2
+
 typedef struct {
     uint32_t seq;
     uint8_t mac[6];
@@ -42,6 +45,7 @@ typedef struct {
 static EventGroupHandle_t s_wifi_event_group;
 static QueueHandle_t s_csi_queue;
 static esp_mqtt_client_handle_t s_mqtt_client = NULL;
+static TaskHandle_t s_led_task_handle = NULL;
 static volatile bool s_wifi_connected = false;
 static volatile bool s_mqtt_connected = false;
 static uint32_t s_packet_count = 0;
@@ -101,6 +105,23 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     }
 }
 
+// LED activity indicator task (non-blocking approach)
+static void led_activity_task(void *pvParameter)
+{
+    while (1) {
+        // Wait for notification from MQTT sender (blocks here, not in sender)
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        // Quick blink to indicate activity
+        gpio_set_level(LED_GPIO, 0);
+        vTaskDelay(pdMS_TO_TICKS(30));
+        gpio_set_level(LED_GPIO, 1);
+
+        // Debounce: ignore rapid notifications to prevent flicker
+        vTaskDelay(pdMS_TO_TICKS(70));
+    }
+}
+
 static void mqtt_sender_task(void *pvParameter)
 {
     csi_packet_t pkt;
@@ -127,6 +148,10 @@ static void mqtt_sender_task(void *pvParameter)
             char *json_str = cJSON_PrintUnformatted(root);
             if (json_str) {
                 esp_mqtt_client_publish(s_mqtt_client, topic, json_str, 0, 0, 0);
+                // Notify LED task (non-blocking)
+                if (s_led_task_handle) {
+                    xTaskNotifyGive(s_led_task_handle);
+                }
                 free(json_str);
             }
             cJSON_Delete(root);
@@ -149,6 +174,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 
 void app_main(void)
 {
+    // Initialize LED GPIO
+    gpio_reset_pin(LED_GPIO);
+    gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_GPIO, 0);
+
     // Initialize NVS
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -178,9 +208,15 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    // Wait for Wi-Fi
+    // Wait for Wi-Fi with slow LED blinking
     ESP_LOGI(TAG, "Waiting for Wi-Fi...");
-    xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
+    int led_state = 0;
+    while (!(xEventGroupGetBits(s_wifi_event_group) & WIFI_CONNECTED_BIT)) {
+        led_state = !led_state;
+        gpio_set_level(LED_GPIO, led_state);
+        vTaskDelay(pdMS_TO_TICKS(500)); // Slow blink: 500ms on/off
+    }
+    gpio_set_level(LED_GPIO, 1); // LED on when connected
     ESP_LOGI(TAG, "Wi-Fi connected");
 
     // Initialize CSI
@@ -196,7 +232,10 @@ void app_main(void)
     esp_mqtt_client_register_event(s_mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(s_mqtt_client);
 
-    // Start background task
+    // Start LED activity indicator task (low priority, small stack)
+    xTaskCreate(&led_activity_task, "led_activity", 2048, NULL, 3, &s_led_task_handle);
+
+    // Start MQTT sender task
     xTaskCreate(&mqtt_sender_task, "mqtt_sender", 16384, NULL, 5, NULL);
 
     ESP_LOGI(TAG, "System initialized");
