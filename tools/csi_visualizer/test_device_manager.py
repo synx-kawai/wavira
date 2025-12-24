@@ -12,6 +12,7 @@ from device_manager import (
     DeviceAuthManager,
     DeviceStatus,
     DeviceWithStatus,
+    MQTTCredentials,
     generate_api_key,
     hash_api_key,
     verify_api_key,
@@ -85,7 +86,7 @@ class TestDeviceAuthManager:
 
     def test_register_device(self, manager):
         """Test device registration."""
-        device, api_key = manager.register_device(
+        device, api_key, mqtt_creds = manager.register_device(
             device_id="test-device-001",
             zone="Zone A",
             location="Test Lab",
@@ -96,6 +97,10 @@ class TestDeviceAuthManager:
         assert device.location == "Test Lab"
         assert api_key is not None
         assert api_key.startswith("wvr_")
+        # MQTT credentials
+        assert mqtt_creds is not None
+        assert mqtt_creds.username == "test-device-001"
+        assert mqtt_creds.client_id == "wavira_test-device-001"
 
     def test_register_device_duplicate(self, manager):
         """Test that duplicate device registration raises ValueError."""
@@ -105,7 +110,7 @@ class TestDeviceAuthManager:
 
     def test_authenticate_device_valid(self, manager):
         """Test authentication with valid API key."""
-        device, api_key = manager.register_device(
+        device, api_key, _mqtt_creds = manager.register_device(
             device_id="test-device-001",
             zone="Zone A",
         )
@@ -115,7 +120,7 @@ class TestDeviceAuthManager:
 
     def test_authenticate_by_key(self, manager):
         """Test authentication by API key only."""
-        device, api_key = manager.register_device(
+        device, api_key, _mqtt_creds = manager.register_device(
             device_id="test-device-001",
             zone="Zone A",
         )
@@ -136,7 +141,7 @@ class TestDeviceAuthManager:
 
     def test_authenticate_disabled_device(self, manager):
         """Test that disabled devices cannot authenticate."""
-        device, api_key = manager.register_device(device_id="test-device-001")
+        device, api_key, _mqtt_creds = manager.register_device(device_id="test-device-001")
         manager.update_device("test-device-001", enabled=False)
         result = manager.authenticate("test-device-001", api_key)
         assert result is False
@@ -222,7 +227,7 @@ class TestDeviceAuthManager:
 
     def test_rotate_api_key(self, manager):
         """Test API key rotation."""
-        device, old_api_key = manager.register_device(
+        device, old_api_key, _mqtt_creds = manager.register_device(
             device_id="test-device-001",
             zone="Zone A",
         )

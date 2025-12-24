@@ -1,4 +1,4 @@
-menu "Wavira CSI HTTP Configuration"
+menu "Wavira CSI Configuration"
 
     choice CSI_OUTPUT_MODE
         prompt "CSI Data Output Mode"
@@ -7,6 +7,7 @@ menu "Wavira CSI HTTP Configuration"
             Select how CSI data should be output.
             Serial mode outputs to UART (for development).
             HTTP mode sends to a server via Wi-Fi.
+            MQTT mode publishes to an MQTT broker via Wi-Fi.
 
         config CSI_OUTPUT_SERIAL
             bool "Serial Output (UART)"
@@ -19,10 +20,17 @@ menu "Wavira CSI HTTP Configuration"
             help
                 Send CSI data to HTTP server via Wi-Fi.
                 Use this for production deployment.
+
+        config CSI_OUTPUT_MQTT
+            bool "MQTT Output (Wi-Fi)"
+            help
+                Publish CSI data to MQTT broker via Wi-Fi.
+                Recommended for production deployment.
+                Lower overhead than HTTP, supports QoS.
     endchoice
 
     menu "Wi-Fi Configuration"
-        depends on CSI_OUTPUT_HTTP
+        depends on CSI_OUTPUT_HTTP || CSI_OUTPUT_MQTT
 
         config WAVIRA_WIFI_SSID
             string "Wi-Fi SSID"
@@ -90,7 +98,7 @@ menu "Wavira CSI HTTP Configuration"
     endmenu
 
     menu "Device Configuration"
-        depends on CSI_OUTPUT_HTTP
+        depends on CSI_OUTPUT_HTTP || CSI_OUTPUT_MQTT
 
         config WAVIRA_DEVICE_ID
             string "Device ID"
@@ -107,8 +115,76 @@ menu "Wavira CSI HTTP Configuration"
                 Used for spatial organization of multiple devices.
     endmenu
 
+    menu "MQTT Broker Configuration"
+        depends on CSI_OUTPUT_MQTT
+
+        config WAVIRA_MQTT_BROKER_URL
+            string "MQTT Broker URL"
+            default "mqtt://192.168.1.100"
+            help
+                URL of the MQTT broker.
+                Examples:
+                  mqtt://192.168.1.100 (plain TCP)
+                  mqtts://192.168.1.100 (TLS)
+                  mqtt://192.168.1.100:1883
+
+        config WAVIRA_MQTT_PORT
+            int "MQTT Broker Port"
+            default 1883
+            range 1 65535
+            help
+                Port number of the MQTT broker.
+                Default: 1883 (plain), 8883 (TLS)
+
+        config WAVIRA_MQTT_USERNAME
+            string "MQTT Username"
+            default ""
+            help
+                Username for MQTT authentication.
+                Leave empty if authentication is disabled.
+
+        config WAVIRA_MQTT_PASSWORD
+            string "MQTT Password"
+            default ""
+            help
+                Password for MQTT authentication.
+                Leave empty if authentication is disabled.
+
+        config WAVIRA_MQTT_CLIENT_ID
+            string "MQTT Client ID"
+            default "wavira_esp32"
+            help
+                Unique client ID for MQTT connection.
+                Should be unique per device.
+
+        config WAVIRA_MQTT_QOS
+            int "MQTT QoS Level"
+            default 1
+            range 0 2
+            help
+                Quality of Service level for MQTT messages.
+                0 = At most once (fire and forget)
+                1 = At least once (guaranteed delivery, may duplicate)
+                2 = Exactly once (guaranteed single delivery)
+
+        config WAVIRA_MQTT_KEEPALIVE
+            int "MQTT Keep Alive (seconds)"
+            default 60
+            range 10 600
+            help
+                Keep alive interval in seconds.
+                Broker disconnects if no message within 1.5x this time.
+
+        config WAVIRA_MQTT_TLS_ENABLED
+            bool "Enable TLS"
+            default n
+            help
+                Enable TLS encryption for MQTT connection.
+                Requires certificate configuration.
+    endmenu
+
     menu "Data Buffering Configuration"
-        depends on CSI_OUTPUT_HTTP
+        depends on CSI_OUTPUT_HTTP || CSI_OUTPUT_MQTT
 
         config WAVIRA_BUFFER_SIZE
             int "Ring Buffer Size"

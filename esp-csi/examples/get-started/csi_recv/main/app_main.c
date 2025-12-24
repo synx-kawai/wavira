@@ -5,13 +5,15 @@
  */
 /**
  * @file app_main.c
- * @brief ESP32 CSI Receiver with HTTP/Wi-Fi Transmission Support
+ * @brief ESP32 CSI Receiver with HTTP/MQTT/Wi-Fi Transmission Support
  *
- * This firmware supports two output modes:
+ * This firmware supports three output modes:
  * - Serial Mode: Traditional UART output for development/debugging
- * - HTTP Mode: Wi-Fi transmission to a server for production deployment
+ * - HTTP Mode: Wi-Fi transmission to a server via HTTP
+ * - MQTT Mode: Wi-Fi transmission to a broker via MQTT (recommended)
  *
  * Issue #15: ESP32ファームウェアにWi-Fi経由HTTP送信機能を追加
+ * Issue #21-26: MQTT対応追加
  */
 
 #include <stdio.h>
@@ -44,6 +46,11 @@
 #include "lwip/netdb.h"
 #include "lwip/sockets.h"
 #include "ping/ping_sock.h"
+#endif
+
+#ifdef CONFIG_CSI_OUTPUT_MQTT
+#include "mqtt_client.h"
+#include "cJSON.h"
 #endif
 
 static const char *TAG = "wavira_csi";
@@ -169,11 +176,9 @@ typedef struct {
 static const uint8_t CONFIG_CSI_SEND_MAC[] = {0x1a, 0x00, 0x00, 0x00, 0x00, 0x00};
 #endif
 
-#ifdef CONFIG_CSI_OUTPUT_HTTP
+#if defined(CONFIG_CSI_OUTPUT_HTTP) || defined(CONFIG_CSI_OUTPUT_MQTT)
 static EventGroupHandle_t s_wifi_event_group;
 static QueueHandle_t s_csi_queue;
-// Note: Mutex removed as http_send_csi_batch is only called from single http_sender_task.
-// If multiple tasks need to send HTTP requests in the future, add mutex protection.
 static volatile bool s_wifi_connected = false;
 static uint32_t s_total_packets_sent = 0;
 static uint32_t s_total_packets_failed = 0;
@@ -181,6 +186,16 @@ static int64_t s_boot_time_ms = 0;
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
+#endif
+
+#ifdef CONFIG_CSI_OUTPUT_MQTT
+static esp_mqtt_client_handle_t s_mqtt_client = NULL;
+static volatile bool s_mqtt_connected = false;
+
+// MQTT Topic for CSI data batch
+static char s_mqtt_csi_topic[128];
+static char s_mqtt_status_topic[128];
+static char s_mqtt_will_topic[128];
 #endif
 
 static uint32_t s_packet_count = 0;
@@ -244,7 +259,7 @@ static void led_task(void *pvParameter)
 // HTTP Mode Implementation
 // =============================================================================
 
-#ifdef CONFIG_CSI_OUTPUT_HTTP
+#if defined(CONFIG_CSI_OUTPUT_HTTP) || defined(CONFIG_CSI_OUTPUT_MQTT)
 
 static int s_wifi_retry_count = 0;
 static esp_timer_handle_t s_reconnect_timer = NULL;
@@ -572,7 +587,218 @@ static void wifi_ping_router_start(void)
 #endif // CONFIG_CSI_OUTPUT_HTTP
 
 // =============================================================================
-// CSI Callback (Common for both modes)
+// MQTT Functions
+// =============================================================================
+
+#ifdef CONFIG_CSI_OUTPUT_MQTT
+
+static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    esp_mqtt_event_handle_t event = event_data;
+
+    switch ((esp_mqtt_event_id_t)event_id) {
+        case MQTT_EVENT_CONNECTED:
+            ESP_LOGI(TAG, "MQTT Connected to broker");
+            s_mqtt_connected = true;
+            s_led_state = LED_WIFI_CONNECTED;
+
+            // Publish online status
+            char status_msg[128];
+            snprintf(status_msg, sizeof(status_msg),
+                     "{\"device_id\":\"%s\",\"status\":\"online\",\"timestamp\":%lld}",
+                     CONFIG_WAVIRA_DEVICE_ID, esp_timer_get_time() / 1000);
+            esp_mqtt_client_publish(s_mqtt_client, s_mqtt_status_topic, status_msg, 0,
+                                    CONFIG_WAVIRA_MQTT_QOS, 1);  // retained
+            break;
+
+        case MQTT_EVENT_DISCONNECTED:
+            ESP_LOGW(TAG, "MQTT Disconnected from broker");
+            s_mqtt_connected = false;
+            s_led_state = LED_WIFI_CONNECTING;
+            break;
+
+        case MQTT_EVENT_ERROR:
+            ESP_LOGE(TAG, "MQTT Error: type=%d", event->error_handle->error_type);
+            if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+                ESP_LOGE(TAG, "Last error code: 0x%x", event->error_handle->esp_tls_last_esp_err);
+            }
+            break;
+
+        case MQTT_EVENT_PUBLISHED:
+            ESP_LOGD(TAG, "MQTT Message published, msg_id=%d", event->msg_id);
+            break;
+
+        default:
+            ESP_LOGD(TAG, "MQTT Event: %d", event_id);
+            break;
+    }
+}
+
+static esp_err_t mqtt_publish_csi_batch(csi_packet_t *packets, int count)
+{
+    if (!s_mqtt_connected || !s_mqtt_client || count == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_led_state = LED_TRANSMITTING;
+
+    // Create batch JSON
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        ESP_LOGE(TAG, "Failed to create JSON object");
+        return ESP_ERR_NO_MEM;
+    }
+
+    cJSON_AddStringToObject(root, "device_id", CONFIG_WAVIRA_DEVICE_ID);
+    cJSON_AddNumberToObject(root, "timestamp", esp_timer_get_time() / 1000);
+
+    cJSON *batch_array = cJSON_CreateArray();
+    if (!batch_array) {
+        cJSON_Delete(root);
+        return ESP_ERR_NO_MEM;
+    }
+
+    for (int i = 0; i < count; i++) {
+        cJSON *packet_json = create_csi_json(&packets[i]);
+        if (packet_json) {
+            cJSON_AddItemToArray(batch_array, packet_json);
+        }
+    }
+
+    cJSON_AddItemToObject(root, "batch", batch_array);
+
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (!json_str) {
+        ESP_LOGE(TAG, "Failed to print JSON");
+        return ESP_ERR_NO_MEM;
+    }
+
+    int msg_id = esp_mqtt_client_publish(s_mqtt_client, s_mqtt_csi_topic,
+                                          json_str, 0, CONFIG_WAVIRA_MQTT_QOS, 0);
+    free(json_str);
+
+    if (msg_id < 0) {
+        ESP_LOGE(TAG, "MQTT publish failed");
+        s_total_packets_failed += count;
+        s_led_state = LED_ERROR;
+        return ESP_FAIL;
+    }
+
+    s_total_packets_sent += count;
+    s_led_state = LED_WIFI_CONNECTED;
+
+    ESP_LOGD(TAG, "Published %d CSI packets, msg_id=%d", count, msg_id);
+    return ESP_OK;
+}
+
+static void mqtt_sender_task(void *pvParameter)
+{
+    csi_packet_t batch_buffer[CONFIG_WAVIRA_BATCH_SIZE];
+    int batch_count = 0;
+    TickType_t last_send_time = xTaskGetTickCount();
+
+    ESP_LOGI(TAG, "MQTT sender task started");
+
+    while (1) {
+        csi_packet_t packet;
+        TickType_t wait_time = pdMS_TO_TICKS(CONFIG_WAVIRA_SEND_INTERVAL_MS);
+
+        // Try to receive a packet from queue (with timeout)
+        if (xQueueReceive(s_csi_queue, &packet, wait_time) == pdTRUE) {
+            // Add packet to batch buffer
+            if (batch_count < CONFIG_WAVIRA_BATCH_SIZE) {
+                memcpy(&batch_buffer[batch_count], &packet, sizeof(csi_packet_t));
+                batch_count++;
+            }
+        }
+
+        // Check if we should send the batch
+        TickType_t current_time = xTaskGetTickCount();
+        bool time_elapsed = (current_time - last_send_time) >= pdMS_TO_TICKS(CONFIG_WAVIRA_SEND_INTERVAL_MS);
+        bool buffer_full = (batch_count >= CONFIG_WAVIRA_BATCH_SIZE);
+
+        if ((time_elapsed || buffer_full) && batch_count > 0 && s_mqtt_connected) {
+            esp_err_t err = mqtt_publish_csi_batch(batch_buffer, batch_count);
+            if (err == ESP_OK) {
+                ESP_LOGD(TAG, "Batch sent: %d packets", batch_count);
+            } else if (err != ESP_ERR_INVALID_STATE) {
+                ESP_LOGW(TAG, "Batch send failed: %s", esp_err_to_name(err));
+            }
+            batch_count = 0;
+            last_send_time = current_time;
+        }
+
+        // Small yield to prevent watchdog
+        taskYIELD();
+    }
+}
+
+static void mqtt_init(void)
+{
+    // Build topic strings
+    snprintf(s_mqtt_csi_topic, sizeof(s_mqtt_csi_topic),
+             "wavira/device/%s/csi/batch", CONFIG_WAVIRA_DEVICE_ID);
+    snprintf(s_mqtt_status_topic, sizeof(s_mqtt_status_topic),
+             "wavira/device/%s/status", CONFIG_WAVIRA_DEVICE_ID);
+    snprintf(s_mqtt_will_topic, sizeof(s_mqtt_will_topic),
+             "wavira/device/%s/will", CONFIG_WAVIRA_DEVICE_ID);
+
+    // Build Last Will message
+    char will_msg[128];
+    snprintf(will_msg, sizeof(will_msg),
+             "{\"device_id\":\"%s\",\"status\":\"offline\",\"reason\":\"unexpected_disconnect\"}",
+             CONFIG_WAVIRA_DEVICE_ID);
+
+    // Configure MQTT client
+    esp_mqtt_client_config_t mqtt_cfg = {
+        .broker = {
+            .address = {
+                .uri = CONFIG_WAVIRA_MQTT_BROKER_URL,
+                .port = CONFIG_WAVIRA_MQTT_PORT,
+            },
+        },
+        .credentials = {
+            .username = strlen(CONFIG_WAVIRA_MQTT_USERNAME) > 0 ? CONFIG_WAVIRA_MQTT_USERNAME : NULL,
+            .authentication = {
+                .password = strlen(CONFIG_WAVIRA_MQTT_PASSWORD) > 0 ? CONFIG_WAVIRA_MQTT_PASSWORD : NULL,
+            },
+            .client_id = CONFIG_WAVIRA_MQTT_CLIENT_ID,
+        },
+        .session = {
+            .keepalive = CONFIG_WAVIRA_MQTT_KEEPALIVE,
+            .last_will = {
+                .topic = s_mqtt_will_topic,
+                .msg = will_msg,
+                .msg_len = strlen(will_msg),
+                .qos = CONFIG_WAVIRA_MQTT_QOS,
+                .retain = true,
+            },
+        },
+    };
+
+    ESP_LOGI(TAG, "Initializing MQTT client...");
+    ESP_LOGI(TAG, "  Broker: %s:%d", CONFIG_WAVIRA_MQTT_BROKER_URL, CONFIG_WAVIRA_MQTT_PORT);
+    ESP_LOGI(TAG, "  Client ID: %s", CONFIG_WAVIRA_MQTT_CLIENT_ID);
+    ESP_LOGI(TAG, "  CSI Topic: %s", s_mqtt_csi_topic);
+
+    s_mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
+    if (!s_mqtt_client) {
+        ESP_LOGE(TAG, "Failed to initialize MQTT client");
+        return;
+    }
+
+    esp_mqtt_client_register_event(s_mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
+    esp_mqtt_client_start(s_mqtt_client);
+
+    ESP_LOGI(TAG, "MQTT client started");
+}
+
+#endif // CONFIG_CSI_OUTPUT_MQTT
+
+// =============================================================================
+// CSI Callback (Common for all modes)
 // =============================================================================
 
 static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
@@ -613,9 +839,14 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     }
 #endif
 
-#ifdef CONFIG_CSI_OUTPUT_HTTP
-    // HTTP Mode: Queue the packet for transmission
-    if (s_wifi_connected && s_csi_queue) {
+#if defined(CONFIG_CSI_OUTPUT_HTTP) || defined(CONFIG_CSI_OUTPUT_MQTT)
+    // HTTP/MQTT Mode: Queue the packet for transmission
+#ifdef CONFIG_CSI_OUTPUT_MQTT
+    bool is_connected = s_wifi_connected && s_mqtt_connected;
+#else
+    bool is_connected = s_wifi_connected;
+#endif
+    if (is_connected && s_csi_queue) {
         csi_packet_t pkt = {0};
 
 #ifdef CONFIG_CSI_TRIGGER_ESPNOW
@@ -705,7 +936,7 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
 #endif
     ets_printf("]\"\n");
 
-#endif // CONFIG_CSI_OUTPUT_HTTP
+#endif // CONFIG_CSI_OUTPUT_HTTP || CONFIG_CSI_OUTPUT_MQTT
 
     s_packet_count++;
 }
@@ -714,7 +945,7 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
 // Wi-Fi Initialization (Serial Mode - ESP-NOW)
 // =============================================================================
 
-#ifndef CONFIG_CSI_OUTPUT_HTTP
+#if !defined(CONFIG_CSI_OUTPUT_HTTP) && !defined(CONFIG_CSI_OUTPUT_MQTT)
 static void wifi_init_espnow(void)
 {
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -791,7 +1022,7 @@ static void wifi_esp_now_init(esp_now_peer_info_t peer)
     ESP_ERROR_CHECK(esp_now_set_peer_rate_config(peer.peer_addr, &rate_config));
 }
 #endif
-#endif // !CONFIG_CSI_OUTPUT_HTTP
+#endif // !CONFIG_CSI_OUTPUT_HTTP && !CONFIG_CSI_OUTPUT_MQTT
 
 // =============================================================================
 // CSI Initialization
@@ -865,6 +1096,10 @@ void app_main(void)
     ESP_LOGI(TAG, "  Mode: HTTP (Wi-Fi)");
     ESP_LOGI(TAG, "  Device ID: %s", CONFIG_WAVIRA_DEVICE_ID);
     ESP_LOGI(TAG, "  Server: %s", CONFIG_WAVIRA_SERVER_URL);
+#elif defined(CONFIG_CSI_OUTPUT_MQTT)
+    ESP_LOGI(TAG, "  Mode: MQTT (Wi-Fi)");
+    ESP_LOGI(TAG, "  Device ID: %s", CONFIG_WAVIRA_DEVICE_ID);
+    ESP_LOGI(TAG, "  Broker: %s:%d", CONFIG_WAVIRA_MQTT_BROKER_URL, CONFIG_WAVIRA_MQTT_PORT);
 #else
     ESP_LOGI(TAG, "  Mode: Serial (UART)");
 #endif
@@ -907,6 +1142,36 @@ void app_main(void)
 
     // Start HTTP sender task
     xTaskCreate(&http_sender_task, "http_sender", 16384, NULL, 5, NULL);
+
+#elif defined(CONFIG_CSI_OUTPUT_MQTT)
+    // MQTT Mode
+    s_boot_time_ms = esp_timer_get_time() / 1000;
+
+    // Create CSI packet queue for buffering
+    s_csi_queue = xQueueCreate(CONFIG_WAVIRA_BUFFER_SIZE, sizeof(csi_packet_t));
+    if (!s_csi_queue) {
+        ESP_LOGE(TAG, "Failed to create CSI queue");
+        return;
+    }
+
+    // Connect to Wi-Fi (reuse HTTP mode Wi-Fi init)
+    wifi_init_sta();
+
+    // Initialize MQTT client
+    mqtt_init();
+
+    // Get AP BSSID for CSI filtering (router mode)
+#ifdef CONFIG_CSI_TRIGGER_ROUTER
+    wifi_ap_record_t ap_info;
+    ESP_ERROR_CHECK(esp_wifi_sta_get_ap_info(&ap_info));
+    wifi_csi_init(ap_info.bssid);
+    wifi_ping_router_start();
+#else
+    wifi_csi_init(NULL);
+#endif
+
+    // Start MQTT sender task
+    xTaskCreate(&mqtt_sender_task, "mqtt_sender", 16384, NULL, 5, NULL);
 
 #else
     // Serial Mode (ESP-NOW)

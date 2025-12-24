@@ -6,6 +6,7 @@ set(COMPONENT_REQUIRES
     espressif__esp-now
     driver
     esp_http_client
+    mqtt
     lwip
 )
 

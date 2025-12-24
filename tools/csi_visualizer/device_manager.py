@@ -48,6 +48,10 @@ class Device:
     enabled: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # MQTT credentials
+    mqtt_username: Optional[str] = None
+    mqtt_password_hash: Optional[str] = None
+    mqtt_client_id: Optional[str] = None
 
 
 @dataclass
@@ -67,6 +71,14 @@ class DeviceWithStatus:
     """デバイス情報と状態"""
     device: Device
     status: DeviceStatus
+
+
+@dataclass
+class MQTTCredentials:
+    """MQTT認証情報"""
+    username: str
+    password: str  # Plain text password (only shown once)
+    client_id: str
 
 
 # =============================================================================
@@ -131,6 +143,32 @@ def create_lookup_hash(api_key: str) -> str:
     return hashlib.sha256(api_key.encode()).hexdigest()
 
 
+def generate_mqtt_credentials(device_id: str) -> MQTTCredentials:
+    """
+    Generate MQTT credentials for a device.
+
+    IMPORTANT: Username is set to device_id directly (not "device_{device_id}")
+    to align with ACL pattern: wavira/device/%u/# where %u = username = device_id
+
+    Returns:
+        MQTTCredentials with username, password, and client_id
+    """
+    # Username = device_id (aligns with ACL pattern and topic structure)
+    username = device_id
+
+    # Generate secure password
+    password = secrets.token_urlsafe(32)
+
+    # Client ID format: wavira_{device_id}
+    client_id = f"wavira_{device_id}"
+
+    return MQTTCredentials(
+        username=username,
+        password=password,
+        client_id=client_id,
+    )
+
+
 # =============================================================================
 # Device Manager
 # =============================================================================
@@ -188,9 +226,26 @@ class DeviceAuthManager:
                         location TEXT,
                         enabled BOOLEAN DEFAULT TRUE,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        mqtt_username TEXT,
+                        mqtt_password_hash TEXT,
+                        mqtt_client_id TEXT
                     )
                 """)
+
+                # マイグレーション: 既存テーブルにMQTTカラムを追加
+                try:
+                    cursor.execute("ALTER TABLE devices ADD COLUMN mqtt_username TEXT")
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
+                try:
+                    cursor.execute("ALTER TABLE devices ADD COLUMN mqtt_password_hash TEXT")
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    cursor.execute("ALTER TABLE devices ADD COLUMN mqtt_client_id TEXT")
+                except sqlite3.OperationalError:
+                    pass
 
                 # デバイス状態テーブル
                 cursor.execute("""
@@ -231,17 +286,31 @@ class DeviceAuthManager:
         device_id: str,
         zone: Optional[str] = None,
         location: Optional[str] = None,
-    ) -> tuple[Device, str]:
+        generate_mqtt: bool = True,
+    ) -> tuple[Device, str, Optional[MQTTCredentials]]:
         """
-        Register a new device and generate its API key.
+        Register a new device and generate its API key and MQTT credentials.
+
+        Args:
+            device_id: Unique device identifier
+            zone: Optional zone assignment
+            location: Optional location description
+            generate_mqtt: If True, generate MQTT credentials
 
         Returns:
-            Tuple of (Device, plain_api_key)
+            Tuple of (Device, plain_api_key, MQTTCredentials or None)
         """
         # Generate API key
         api_key = generate_api_key()
         api_key_hash = hash_api_key(api_key)
         api_key_lookup = create_lookup_hash(api_key)
+
+        # Generate MQTT credentials
+        mqtt_creds = None
+        mqtt_password_hash = None
+        if generate_mqtt:
+            mqtt_creds = generate_mqtt_credentials(device_id)
+            mqtt_password_hash = hash_api_key(mqtt_creds.password)
 
         now = datetime.utcnow()
 
@@ -255,11 +324,19 @@ class DeviceAuthManager:
                 if cursor.fetchone():
                     raise ValueError(f"Device '{device_id}' already exists")
 
-                # Insert device
+                # Insert device with MQTT credentials
                 cursor.execute("""
-                    INSERT INTO devices (id, api_key_hash, api_key_lookup, zone, location, enabled, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, TRUE, ?, ?)
-                """, (device_id, api_key_hash, api_key_lookup, zone, location, now, now))
+                    INSERT INTO devices (
+                        id, api_key_hash, api_key_lookup, zone, location, enabled,
+                        created_at, updated_at, mqtt_username, mqtt_password_hash, mqtt_client_id
+                    )
+                    VALUES (?, ?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?)
+                """, (
+                    device_id, api_key_hash, api_key_lookup, zone, location, now, now,
+                    mqtt_creds.username if mqtt_creds else None,
+                    mqtt_password_hash,
+                    mqtt_creds.client_id if mqtt_creds else None,
+                ))
 
                 # Initialize device status
                 cursor.execute("""
@@ -277,10 +354,13 @@ class DeviceAuthManager:
                     enabled=True,
                     created_at=now,
                     updated_at=now,
+                    mqtt_username=mqtt_creds.username if mqtt_creds else None,
+                    mqtt_password_hash=mqtt_password_hash,
+                    mqtt_client_id=mqtt_creds.client_id if mqtt_creds else None,
                 )
 
                 logger.info(f"Device registered: {device_id}")
-                return device, api_key
+                return device, api_key, mqtt_creds
             finally:
                 self._close_connection(conn)
 
@@ -301,6 +381,9 @@ class DeviceAuthManager:
                         enabled=bool(row["enabled"]),
                         created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
                         updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,
+                        mqtt_username=row["mqtt_username"] if "mqtt_username" in row.keys() else None,
+                        mqtt_password_hash=row["mqtt_password_hash"] if "mqtt_password_hash" in row.keys() else None,
+                        mqtt_client_id=row["mqtt_client_id"] if "mqtt_client_id" in row.keys() else None,
                     )
                 return None
             finally:
@@ -337,6 +420,9 @@ class DeviceAuthManager:
                         enabled=bool(row["enabled"]),
                         created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
                         updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,
+                        mqtt_username=row["mqtt_username"] if "mqtt_username" in row.keys() else None,
+                        mqtt_password_hash=row["mqtt_password_hash"] if "mqtt_password_hash" in row.keys() else None,
+                        mqtt_client_id=row["mqtt_client_id"] if "mqtt_client_id" in row.keys() else None,
                     ))
                 return devices
             finally:
@@ -435,6 +521,53 @@ class DeviceAuthManager:
                 return api_key
             finally:
                 self._close_connection(conn)
+
+    def rotate_mqtt_password(self, device_id: str) -> Optional[MQTTCredentials]:
+        """
+        Rotate (regenerate) the MQTT password for a device.
+
+        Returns:
+            New MQTTCredentials, or None if device not found.
+        """
+        mqtt_creds = generate_mqtt_credentials(device_id)
+        mqtt_password_hash = hash_api_key(mqtt_creds.password)
+
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE devices
+                    SET mqtt_username = ?, mqtt_password_hash = ?, mqtt_client_id = ?, updated_at = ?
+                    WHERE id = ?
+                """, (mqtt_creds.username, mqtt_password_hash, mqtt_creds.client_id, datetime.utcnow(), device_id))
+                conn.commit()
+
+                if cursor.rowcount == 0:
+                    return None
+
+                logger.info(f"MQTT password rotated for device: {device_id}")
+                return mqtt_creds
+            finally:
+                self._close_connection(conn)
+
+    def generate_mqtt_for_existing_device(self, device_id: str) -> Optional[MQTTCredentials]:
+        """
+        Generate MQTT credentials for an existing device that doesn't have them.
+
+        Returns:
+            MQTTCredentials, or None if device not found.
+        """
+        device = self.get_device(device_id)
+        if not device:
+            return None
+
+        # If device already has MQTT credentials, rotate them
+        if device.mqtt_username:
+            return self.rotate_mqtt_password(device_id)
+
+        # Generate new credentials
+        return self.rotate_mqtt_password(device_id)
 
     # -------------------------------------------------------------------------
     # Authentication
@@ -685,7 +818,7 @@ def main():
 
     try:
         if args.command == "register":
-            device, api_key = manager.register_device(
+            device, api_key, mqtt_creds = manager.register_device(
                 args.device_id,
                 zone=args.zone,
                 location=args.location,
@@ -694,8 +827,13 @@ def main():
             print(f"  Device ID: {device.id}")
             print(f"  Zone: {device.zone or 'N/A'}")
             print(f"  Location: {device.location or 'N/A'}")
-            print(f"\n⚠️  IMPORTANT: Save this API key - it will not be shown again!")
+            print(f"\n⚠️  IMPORTANT: Save these credentials - they will not be shown again!")
             print(f"  API Key: {api_key}")
+            if mqtt_creds:
+                print(f"\n  MQTT Credentials:")
+                print(f"    Username: {mqtt_creds.username}")
+                print(f"    Password: {mqtt_creds.password}")
+                print(f"    Client ID: {mqtt_creds.client_id}")
 
         elif args.command == "list":
             devices = manager.list_devices(

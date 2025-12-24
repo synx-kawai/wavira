@@ -28,6 +28,10 @@ setup(
             "pyyaml>=6.0.0",
             "pyserial>=3.5",
             "websockets>=12.0",
+            "paho-mqtt>=2.0.0",
+        ],
+        "mqtt": [
+            "paho-mqtt>=2.0.0",
         ],
         "logging": [
             "tensorboard>=2.14.0",
@@ -39,6 +43,7 @@ setup(
             "tensorboard>=2.14.0",
             "pyyaml>=6.0",
             "pyserial>=3.5",
+            "paho-mqtt>=2.0.0",
         ],
     },
     entry_points={
