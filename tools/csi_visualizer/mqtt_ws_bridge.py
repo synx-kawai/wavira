@@ -13,12 +13,14 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import signal
+import sqlite3
 import sys
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set
 
 import paho.mqtt.client as mqtt
 import websockets
@@ -45,6 +47,95 @@ class DeviceState:
     connected: bool = True
 
 
+class ZoneHistoryRecorder:
+    """ゾーン履歴をSQLiteに保存"""
+
+    def __init__(self, db_path: str = "history.db"):
+        self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        """データベースを初期化"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS zone_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL,
+                datetime TEXT,
+                zone TEXT,
+                present_count INTEGER,
+                crowd_level REAL
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_zone_history_timestamp
+            ON zone_history(timestamp)
+        ''')
+        conn.commit()
+        conn.close()
+        logger.info(f"Zone history database initialized: {self.db_path}")
+
+    def record(self, zone: str, present_count: int, capacity: int):
+        """ゾーン状態を記録"""
+        now = time.time()
+        crowd_level = present_count / capacity if capacity > 0 else 0
+        datetime_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO zone_history (timestamp, datetime, zone, present_count, crowd_level)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (now, datetime_str, zone, present_count, crowd_level))
+        conn.commit()
+        conn.close()
+
+    def get_hourly_summary(self, hours: int = 24) -> List[Dict]:
+        """時間別サマリーを取得"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        since = time.time() - (hours * 3600)
+
+        cursor.execute('''
+            SELECT
+                strftime('%Y-%m-%d %H:00', datetime) as hour,
+                zone,
+                AVG(present_count) as avg_present,
+                MAX(present_count) as max_present,
+                AVG(crowd_level) as avg_crowd_level
+            FROM zone_history
+            WHERE timestamp > ?
+            GROUP BY hour, zone
+            ORDER BY hour DESC
+        ''', (since,))
+
+        rows = []
+        for row in cursor.fetchall():
+            rows.append({
+                "hour": row[0],
+                "zone": row[1],
+                "avg_present": row[2],
+                "max_present": row[3],
+                "avg_crowd_level": row[4],
+            })
+        conn.close()
+        return rows
+
+    def cleanup_old_data(self, retention_days: int = 7):
+        """古いデータを削除"""
+        cutoff = time.time() - (retention_days * 24 * 3600)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM zone_history WHERE timestamp < ?', (cutoff,))
+        deleted = cursor.rowcount
+        conn.commit()
+        conn.close()
+        if deleted > 0:
+            logger.info(f"Cleaned up {deleted} old zone history records")
+
+
 class MQTTWebSocketBridge:
     """MQTT to WebSocket Bridge"""
 
@@ -53,7 +144,7 @@ class MQTTWebSocketBridge:
     # デバイスクリーンアップの閾値（1時間未更新でメモリから削除）
     DEVICE_CLEANUP_THRESHOLD = 3600
 
-    def __init__(self, mqtt_host: str, mqtt_port: int, ws_port: int):
+    def __init__(self, mqtt_host: str, mqtt_port: int, ws_port: int, db_path: str = "history.db"):
         self.mqtt_host = mqtt_host
         self.mqtt_port = mqtt_port
         self.ws_port = ws_port
@@ -75,6 +166,8 @@ class MQTTWebSocketBridge:
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         # デバイスごとの履歴データ（リングバッファ）
         self.device_history: Dict[str, deque] = {}
+        # ゾーン履歴レコーダー
+        self.zone_recorder = ZoneHistoryRecorder(db_path)
 
     def _on_mqtt_connect(self, client, userdata, flags, rc):
         """MQTT接続時コールバック"""
@@ -255,9 +348,11 @@ class MQTTWebSocketBridge:
                 try:
                     data = json.loads(message)
                     if data.get("type") == "get_hourly_summary":
+                        hours = data.get("hours", 24)
+                        summary = self.zone_recorder.get_hourly_summary(hours)
                         await ws.send(json.dumps({
                             "type": "hourly_summary",
-                            "data": []
+                            "data": summary
                         }))
                 except json.JSONDecodeError:
                     pass
@@ -293,6 +388,7 @@ class MQTTWebSocketBridge:
     async def _periodic_status_broadcast(self):
         """定期的にステータスをブロードキャスト"""
         cleanup_counter = 0
+        zone_record_counter = 0
         while self.running:
             await asyncio.sleep(1)
 
@@ -302,14 +398,34 @@ class MQTTWebSocketBridge:
                 if now - dev.last_update > 5:
                     dev.connected = False
 
+            # ゾーンの在室人数を更新
+            for zone_id, zone in self.zones.items():
+                present_count = sum(
+                    1 for dev in self.devices.values()
+                    if dev.zone == zone_id and dev.breath.get("present", False)
+                )
+                zone["total_present"] = present_count
+
             # ステータスをブロードキャスト
             for ws in list(self.ws_clients):
                 await self._send_status(ws)
+
+            # 定期的にゾーン履歴を記録（10秒ごと）
+            zone_record_counter += 1
+            if zone_record_counter >= 10:
+                for zone_id, zone in self.zones.items():
+                    self.zone_recorder.record(
+                        zone_id,
+                        zone.get("total_present", 0),
+                        zone.get("capacity", 10)
+                    )
+                zone_record_counter = 0
 
             # 定期的にデバイスクリーンアップを実行（60秒ごと）
             cleanup_counter += 1
             if cleanup_counter >= 60:
                 self._cleanup_old_devices()
+                self.zone_recorder.cleanup_old_data()
                 cleanup_counter = 0
 
     def _start_mqtt(self):
