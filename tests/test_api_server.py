@@ -42,6 +42,7 @@ def server_config():
         api_keys=["test-api-key"],
         rate_limit_per_second=10,
         db_path=":memory:",
+        device_db_path=":memory:",  # Use in-memory DB for device auth
     )
 
 
@@ -55,6 +56,7 @@ def server_config_no_auth():
         api_keys=[],
         rate_limit_per_second=10,
         db_path=":memory:",
+        device_db_path=":memory:",  # Use in-memory DB for device auth too
     )
 
 

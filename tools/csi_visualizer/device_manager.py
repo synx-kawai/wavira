@@ -150,13 +150,26 @@ class DeviceAuthManager:
     def __init__(self, db_path: str = "devices.db"):
         self.db_path = db_path
         self._lock = threading.RLock()  # RLock for re-entrant calls
+        # For in-memory databases, we need to keep a persistent connection
+        # otherwise each connect() creates a new empty database
+        self._persistent_conn: Optional[sqlite3.Connection] = None
+        if db_path == ":memory:":
+            self._persistent_conn = sqlite3.connect(":memory:")
+            self._persistent_conn.row_factory = sqlite3.Row
         self._init_database()
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get a database connection with row factory."""
+        if self._persistent_conn is not None:
+            return self._persistent_conn
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def _close_connection(self, conn: sqlite3.Connection) -> None:
+        """Close a database connection if not using persistent connection."""
+        if self._persistent_conn is None:
+            self._close_connection(conn)
 
     def _init_database(self):
         """Initialize database schema."""
@@ -207,7 +220,7 @@ class DeviceAuthManager:
                 conn.commit()
                 logger.info(f"Device database initialized: {self.db_path}")
             finally:
-                conn.close()
+                self._close_connection(conn)
 
     # -------------------------------------------------------------------------
     # Device CRUD Operations
@@ -269,7 +282,7 @@ class DeviceAuthManager:
                 logger.info(f"Device registered: {device_id}")
                 return device, api_key
             finally:
-                conn.close()
+                self._close_connection(conn)
 
     def get_device(self, device_id: str) -> Optional[Device]:
         """Get device by ID."""
@@ -291,7 +304,7 @@ class DeviceAuthManager:
                     )
                 return None
             finally:
-                conn.close()
+                self._close_connection(conn)
 
     def list_devices(self, zone: Optional[str] = None, enabled_only: bool = False) -> List[Device]:
         """List all devices, optionally filtered by zone."""
@@ -327,7 +340,7 @@ class DeviceAuthManager:
                     ))
                 return devices
             finally:
-                conn.close()
+                self._close_connection(conn)
 
     def update_device(
         self,
@@ -375,7 +388,7 @@ class DeviceAuthManager:
                 logger.info(f"Device updated: {device_id}")
                 return self.get_device(device_id)
             finally:
-                conn.close()
+                self._close_connection(conn)
 
     def delete_device(self, device_id: str) -> bool:
         """Delete a device."""
@@ -391,7 +404,7 @@ class DeviceAuthManager:
                     logger.info(f"Device deleted: {device_id}")
                 return deleted
             finally:
-                conn.close()
+                self._close_connection(conn)
 
     def rotate_api_key(self, device_id: str) -> Optional[str]:
         """
@@ -421,7 +434,7 @@ class DeviceAuthManager:
                 logger.info(f"API key rotated for device: {device_id}")
                 return api_key
             finally:
-                conn.close()
+                self._close_connection(conn)
 
     # -------------------------------------------------------------------------
     # Authentication
@@ -480,7 +493,7 @@ class DeviceAuthManager:
 
                 return None
             finally:
-                conn.close()
+                self._close_connection(conn)
 
     # -------------------------------------------------------------------------
     # Device Status
@@ -520,7 +533,7 @@ class DeviceAuthManager:
 
                 conn.commit()
             finally:
-                conn.close()
+                self._close_connection(conn)
 
     def get_device_status(self, device_id: str) -> Optional[DeviceStatus]:
         """Get device status."""
@@ -553,7 +566,7 @@ class DeviceAuthManager:
                     uptime_seconds=row["uptime_seconds"],
                 )
             finally:
-                conn.close()
+                self._close_connection(conn)
 
     def get_all_device_statuses(self) -> List[DeviceWithStatus]:
         """Get all devices with their statuses."""
@@ -581,9 +594,30 @@ class DeviceAuthManager:
         all_devices = self.get_all_device_statuses()
         return sum(1 for d in all_devices if d.status.status == "online")
 
+    def has_registered_devices(self) -> bool:
+        """Check if there are any registered devices in the database.
+
+        This is used to determine if device authentication should be enforced.
+        If there are no registered devices and no static API keys, authentication
+        can be disabled for development/testing purposes.
+        """
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                cursor = conn.execute("SELECT COUNT(*) FROM devices")
+                count = cursor.fetchone()[0]
+                return count > 0
+            except Exception as e:
+                logger.error(f"Error checking registered devices: {e}")
+                return False
+            finally:
+                self._close_connection(conn)
+
     def close(self):
         """Close the database connection."""
-        # SQLite connections are closed per-operation, no persistent connection to close
+        if self._persistent_conn is not None:
+            self._persistent_conn.close()
+            self._persistent_conn = None
         logger.info("Device manager closed")
 
 
