@@ -466,9 +466,16 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
     api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
     async def verify_api_key(api_key: Optional[str] = Security(api_key_header)) -> str:
-        """APIキーを検証"""
+        """
+        APIキーを検証
+
+        Returns:
+            - "anonymous": 認証無効時
+            - "admin:{key}": 静的APIキー（後方互換）
+            - "device:{device_id}": デバイス固有APIキー
+        """
         # APIキーが設定されていない場合は認証をスキップ
-        if not config.api_keys:
+        if not config.api_keys and not app_state.device_auth_manager:
             return "anonymous"
 
         if not api_key:
@@ -477,20 +484,21 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
                 detail="API key is required",
             )
 
-        # タイミング攻撃対策: secrets.compare_digestで安全に比較
-        is_valid = False
+        # 1. 静的APIキーをチェック（後方互換性）
         for valid_key in config.api_keys:
             if secrets.compare_digest(api_key, valid_key):
-                is_valid = True
-                break
+                return f"admin:{api_key}"
 
-        if not is_valid:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid API key",
-            )
+        # 2. デバイス固有APIキーをチェック
+        if app_state.device_auth_manager:
+            device_id = app_state.device_auth_manager.authenticate_by_key(api_key)
+            if device_id:
+                return f"device:{device_id}"
 
-        return api_key
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key",
+        )
 
     async def check_rate_limit(request: Request) -> None:
         """レート制限をチェック"""
@@ -539,9 +547,18 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
     async def receive_csi(
         request: Request,
         data: CSIDataRequest,
-        api_key: str = Depends(verify_api_key),
+        auth_result: str = Depends(verify_api_key),
     ) -> CSIDataResponse:
         """ESP32からCSIデータを受信"""
+        # デバイス認証時はdevice_idの一致を確認（なりすまし防止）
+        if auth_result.startswith("device:"):
+            auth_device_id = auth_result.split(":", 1)[1]
+            if auth_device_id != data.device_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Device ID mismatch: authenticated as {auth_device_id}",
+                )
+
         # レート制限チェック
         if not await app_state.rate_limiter.check(data.device_id):
             raise HTTPException(
@@ -550,8 +567,17 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
             )
 
         try:
-            # デバイス情報を更新
+            # デバイス情報を更新（メモリ上）
             await app_state.device_manager.update(data.device_id, data.metadata)
+
+            # デバイスステータスを更新（永続化DB）
+            if app_state.device_auth_manager:
+                firmware_ver = data.metadata.firmware_version if data.metadata else None
+                app_state.device_auth_manager.update_device_status(
+                    device_id=data.device_id,
+                    packet_count_delta=1,
+                    firmware_version=firmware_ver,
+                )
 
             # DataRecorderに保存
             record_data = {
@@ -597,9 +623,18 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
     async def receive_csi_batch(
         request: Request,
         batch: CSIBatchRequest,
-        api_key: str = Depends(verify_api_key),
+        auth_result: str = Depends(verify_api_key),
     ) -> CSIBatchResponse:
         """ESP32からCSIデータをバッチで受信"""
+        # デバイス認証時はdevice_idの一致を確認（なりすまし防止）
+        if auth_result.startswith("device:"):
+            auth_device_id = auth_result.split(":", 1)[1]
+            if auth_device_id != batch.device_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Device ID mismatch: authenticated as {auth_device_id}",
+                )
+
         # レート制限チェック（バッチ全体で1リクエストとしてカウント）
         if not await app_state.rate_limiter.check(batch.device_id):
             raise HTTPException(
@@ -610,7 +645,7 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
         received_count = 0
         try:
             for data in batch.data:
-                # デバイス情報を更新
+                # デバイス情報を更新（メモリ上）
                 await app_state.device_manager.update(data.device_id, data.metadata)
 
                 # DataRecorderに保存
@@ -628,6 +663,13 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
                 }
                 await app_state.recorder.save_device_data(record_data)
                 received_count += 1
+
+            # デバイスステータスを更新（永続化DB）- バッチ全体で1回
+            if app_state.device_auth_manager and received_count > 0:
+                app_state.device_auth_manager.update_device_status(
+                    device_id=batch.device_id,
+                    packet_count_delta=received_count,
+                )
 
             received_at = int(time.time() * 1000)
             logger.debug(f"Received {received_count} CSI packets from {batch.device_id}")
