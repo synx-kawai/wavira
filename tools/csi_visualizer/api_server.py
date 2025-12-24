@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field, field_validator
 # Import DataRecorder from server_multi
 sys.path.insert(0, str(Path(__file__).parent))
 from server_multi import DataRecorder
+from device_manager import DeviceAuthManager, verify_api_key as verify_api_key_hash
 
 logging.basicConfig(
     level=logging.INFO,
@@ -122,6 +123,78 @@ class ErrorResponse(BaseModel):
 
     error: str
     detail: Optional[str] = None
+
+
+# =============================================================================
+# Device Management Models (Issue #16)
+# =============================================================================
+
+
+class DeviceRegisterRequest(BaseModel):
+    """デバイス登録リクエスト"""
+
+    device_id: str = Field(..., min_length=1, max_length=64, description="デバイスID")
+    zone: Optional[str] = Field(None, max_length=64, description="ゾーン")
+    location: Optional[str] = Field(None, max_length=128, description="設置場所")
+
+
+class DeviceRegisterResponse(BaseModel):
+    """デバイス登録レスポンス"""
+
+    device_id: str
+    api_key: str
+    zone: Optional[str] = None
+    location: Optional[str] = None
+    message: str = "Device registered successfully. Save the API key - it will not be shown again."
+
+
+class DeviceUpdateRequest(BaseModel):
+    """デバイス更新リクエスト"""
+
+    zone: Optional[str] = Field(None, max_length=64, description="ゾーン")
+    location: Optional[str] = Field(None, max_length=128, description="設置場所")
+    enabled: Optional[bool] = Field(None, description="有効/無効")
+
+
+class DeviceDetailResponse(BaseModel):
+    """デバイス詳細レスポンス"""
+
+    device_id: str
+    zone: Optional[str] = None
+    location: Optional[str] = None
+    enabled: bool = True
+    status: str  # online, offline, unknown
+    last_seen: Optional[str] = None
+    packet_count: int = 0
+    error_count: int = 0
+    firmware_version: Optional[str] = None
+    uptime_seconds: Optional[int] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class DeviceListResponse(BaseModel):
+    """デバイス一覧レスポンス"""
+
+    devices: List[DeviceDetailResponse]
+    total: int
+    online_count: int
+    offline_count: int
+
+
+class ApiKeyRotateResponse(BaseModel):
+    """APIキーローテーションレスポンス"""
+
+    device_id: str
+    new_api_key: str
+    message: str = "API key rotated successfully. Save the new API key - it will not be shown again."
+
+
+class DeviceDeleteResponse(BaseModel):
+    """デバイス削除レスポンス"""
+
+    device_id: str
+    message: str = "Device deleted successfully"
 
 
 # =============================================================================
@@ -262,7 +335,10 @@ class ServerConfig:
     api_keys: List[str] = field(default_factory=list)
     rate_limit_per_second: int = 100
     db_path: str = "history.db"
+    device_db_path: str = "devices.db"  # Device authentication database
     cors_origins: List[str] = field(default_factory=lambda: ["*"])
+    # Admin API key for device management operations (required for POST/PUT/DELETE on /devices)
+    admin_api_key: Optional[str] = None
 
     @classmethod
     def from_yaml(cls, path: str) -> "ServerConfig":
@@ -283,7 +359,9 @@ class ServerConfig:
             api_keys=api_config.get("api_keys", []),
             rate_limit_per_second=api_config.get("rate_limit_per_second", 100),
             db_path=api_config.get("db_path", "history.db"),
+            device_db_path=api_config.get("device_db_path", "devices.db"),
             cors_origins=api_config.get("cors_origins", ["*"]),
+            admin_api_key=api_config.get("admin_api_key"),
         )
 
 
@@ -301,6 +379,8 @@ class AppState:
         self.recorder = DataRecorder(config.db_path)
         self.rate_limiter = RateLimiter(config.rate_limit_per_second)
         self.device_manager = DeviceManager()
+        # Device authentication manager (Issue #16)
+        self.device_auth_manager = DeviceAuthManager(config.device_db_path)
         self._cleanup_task: Optional[asyncio.Task] = None
 
     async def start(self):
@@ -319,7 +399,8 @@ class AppState:
         # データベース接続を安全にクローズ
         try:
             self.recorder.close()
-            logger.info("Database connection closed successfully")
+            self.device_auth_manager.close()
+            logger.info("Database connections closed successfully")
         except Exception as e:
             logger.error(f"Error closing database connection: {e}")
 
@@ -634,6 +715,253 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
             error_count=device.error_count,
         )
 
+    # ==========================================================================
+    # Device Management Endpoints (Issue #16)
+    # ==========================================================================
+
+    async def verify_admin_key(api_key: Optional[str] = Security(api_key_header)) -> str:
+        """管理者APIキーを検証（デバイス管理操作用）"""
+        if not config.admin_api_key:
+            # admin_api_keyが設定されていない場合は通常の認証を使用
+            return await verify_api_key(api_key)
+
+        if not api_key:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Admin API key is required for this operation",
+            )
+
+        if not secrets.compare_digest(api_key, config.admin_api_key):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid admin API key",
+            )
+
+        return api_key
+
+    @app.get(
+        f"{config.api_prefix}/admin/devices",
+        response_model=DeviceListResponse,
+        tags=["Device Management"],
+        summary="登録デバイス一覧（管理用）",
+    )
+    async def list_registered_devices(
+        zone: Optional[str] = None,
+        enabled_only: bool = False,
+        api_key: str = Depends(verify_admin_key),
+    ) -> DeviceListResponse:
+        """登録されたデバイスの一覧を取得（認証情報含む）"""
+        all_devices = app_state.device_auth_manager.get_all_device_statuses()
+
+        # フィルタリング
+        if zone:
+            all_devices = [d for d in all_devices if d.device.zone == zone]
+        if enabled_only:
+            all_devices = [d for d in all_devices if d.device.enabled]
+
+        devices = []
+        online_count = 0
+        offline_count = 0
+
+        for ds in all_devices:
+            device = ds.device
+            status_info = ds.status
+
+            if status_info.status == "online":
+                online_count += 1
+            elif status_info.status == "offline":
+                offline_count += 1
+
+            devices.append(DeviceDetailResponse(
+                device_id=device.id,
+                zone=device.zone,
+                location=device.location,
+                enabled=device.enabled,
+                status=status_info.status,
+                last_seen=status_info.last_seen.isoformat() if status_info.last_seen else None,
+                packet_count=status_info.packet_count,
+                error_count=status_info.error_count,
+                firmware_version=status_info.firmware_version,
+                uptime_seconds=status_info.uptime_seconds,
+                created_at=device.created_at.isoformat() if device.created_at else None,
+                updated_at=device.updated_at.isoformat() if device.updated_at else None,
+            ))
+
+        return DeviceListResponse(
+            devices=devices,
+            total=len(devices),
+            online_count=online_count,
+            offline_count=offline_count,
+        )
+
+    @app.post(
+        f"{config.api_prefix}/admin/devices",
+        response_model=DeviceRegisterResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["Device Management"],
+        summary="デバイス登録",
+        responses={
+            400: {"model": ErrorResponse, "description": "デバイスが既に存在する"},
+        },
+    )
+    async def register_device(
+        request: DeviceRegisterRequest,
+        api_key: str = Depends(verify_admin_key),
+    ) -> DeviceRegisterResponse:
+        """新規デバイスを登録しAPIキーを発行"""
+        try:
+            device, plain_api_key = app_state.device_auth_manager.register_device(
+                device_id=request.device_id,
+                zone=request.zone,
+                location=request.location,
+            )
+
+            logger.info(f"Device registered via API: {device.id}")
+
+            return DeviceRegisterResponse(
+                device_id=device.id,
+                api_key=plain_api_key,
+                zone=device.zone,
+                location=device.location,
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+
+    @app.get(
+        f"{config.api_prefix}/admin/devices/{{device_id}}",
+        response_model=DeviceDetailResponse,
+        tags=["Device Management"],
+        summary="デバイス詳細（管理用）",
+        responses={404: {"model": ErrorResponse, "description": "デバイスが見つからない"}},
+    )
+    async def get_device_detail(
+        device_id: str,
+        api_key: str = Depends(verify_admin_key),
+    ) -> DeviceDetailResponse:
+        """登録デバイスの詳細情報を取得"""
+        device = app_state.device_auth_manager.get_device(device_id)
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Device {device_id} not found",
+            )
+
+        status_info = app_state.device_auth_manager.get_device_status(device_id)
+
+        return DeviceDetailResponse(
+            device_id=device.id,
+            zone=device.zone,
+            location=device.location,
+            enabled=device.enabled,
+            status=status_info.status if status_info else "unknown",
+            last_seen=status_info.last_seen.isoformat() if status_info and status_info.last_seen else None,
+            packet_count=status_info.packet_count if status_info else 0,
+            error_count=status_info.error_count if status_info else 0,
+            firmware_version=status_info.firmware_version if status_info else None,
+            uptime_seconds=status_info.uptime_seconds if status_info else None,
+            created_at=device.created_at.isoformat() if device.created_at else None,
+            updated_at=device.updated_at.isoformat() if device.updated_at else None,
+        )
+
+    @app.put(
+        f"{config.api_prefix}/admin/devices/{{device_id}}",
+        response_model=DeviceDetailResponse,
+        tags=["Device Management"],
+        summary="デバイス更新",
+        responses={404: {"model": ErrorResponse, "description": "デバイスが見つからない"}},
+    )
+    async def update_device(
+        device_id: str,
+        request: DeviceUpdateRequest,
+        api_key: str = Depends(verify_admin_key),
+    ) -> DeviceDetailResponse:
+        """デバイス情報を更新"""
+        updated = app_state.device_auth_manager.update_device(
+            device_id=device_id,
+            zone=request.zone,
+            location=request.location,
+            enabled=request.enabled,
+        )
+
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Device {device_id} not found",
+            )
+
+        logger.info(f"Device updated via API: {device_id}")
+
+        status_info = app_state.device_auth_manager.get_device_status(device_id)
+
+        return DeviceDetailResponse(
+            device_id=updated.id,
+            zone=updated.zone,
+            location=updated.location,
+            enabled=updated.enabled,
+            status=status_info.status if status_info else "unknown",
+            last_seen=status_info.last_seen.isoformat() if status_info and status_info.last_seen else None,
+            packet_count=status_info.packet_count if status_info else 0,
+            error_count=status_info.error_count if status_info else 0,
+            firmware_version=status_info.firmware_version if status_info else None,
+            uptime_seconds=status_info.uptime_seconds if status_info else None,
+            created_at=updated.created_at.isoformat() if updated.created_at else None,
+            updated_at=updated.updated_at.isoformat() if updated.updated_at else None,
+        )
+
+    @app.delete(
+        f"{config.api_prefix}/admin/devices/{{device_id}}",
+        response_model=DeviceDeleteResponse,
+        tags=["Device Management"],
+        summary="デバイス削除",
+        responses={404: {"model": ErrorResponse, "description": "デバイスが見つからない"}},
+    )
+    async def delete_device(
+        device_id: str,
+        api_key: str = Depends(verify_admin_key),
+    ) -> DeviceDeleteResponse:
+        """デバイスを削除"""
+        deleted = app_state.device_auth_manager.delete_device(device_id)
+
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Device {device_id} not found",
+            )
+
+        logger.info(f"Device deleted via API: {device_id}")
+
+        return DeviceDeleteResponse(device_id=device_id)
+
+    @app.post(
+        f"{config.api_prefix}/admin/devices/{{device_id}}/rotate-key",
+        response_model=ApiKeyRotateResponse,
+        tags=["Device Management"],
+        summary="APIキーローテーション",
+        responses={404: {"model": ErrorResponse, "description": "デバイスが見つからない"}},
+    )
+    async def rotate_device_api_key(
+        device_id: str,
+        api_key: str = Depends(verify_admin_key),
+    ) -> ApiKeyRotateResponse:
+        """デバイスのAPIキーをローテーション（再生成）"""
+        new_api_key = app_state.device_auth_manager.rotate_api_key(device_id)
+
+        if not new_api_key:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Device {device_id} not found",
+            )
+
+        logger.info(f"API key rotated via API for device: {device_id}")
+
+        return ApiKeyRotateResponse(
+            device_id=device_id,
+            new_api_key=new_api_key,
+        )
+
     return app
 
 
@@ -655,6 +983,12 @@ def main():
     parser.add_argument("--port", "-p", type=int, default=None, help="Port to bind to")
     parser.add_argument("--api-key", default=None, help="API key for authentication")
     parser.add_argument("--db", "-d", default=None, help="Path to database file")
+    parser.add_argument(
+        "--device-db", default=None, help="Path to device database file"
+    )
+    parser.add_argument(
+        "--admin-api-key", default=None, help="Admin API key for device management"
+    )
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     args = parser.parse_args()
 
@@ -670,11 +1004,20 @@ def main():
         config.api_keys = [args.api_key]
     if args.db:
         config.db_path = args.db
+    if args.device_db:
+        config.device_db_path = args.device_db
+    if args.admin_api_key:
+        config.admin_api_key = args.admin_api_key
 
     # 環境変数からAPIキーを読み込む
     env_api_key = os.environ.get("WAVIRA_API_KEY")
     if env_api_key and env_api_key not in config.api_keys:
         config.api_keys.append(env_api_key)
+
+    # 環境変数から管理者APIキーを読み込む
+    env_admin_api_key = os.environ.get("WAVIRA_ADMIN_API_KEY")
+    if env_admin_api_key and not config.admin_api_key:
+        config.admin_api_key = env_admin_api_key
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
@@ -686,7 +1029,9 @@ def main():
     print(f"Port: {config.port}")
     print(f"API Prefix: {config.api_prefix}")
     print(f"Database: {config.db_path}")
+    print(f"Device DB: {config.device_db_path}")
     print(f"Auth: {'Enabled' if config.api_keys else 'Disabled'}")
+    print(f"Admin API: {'Enabled' if config.admin_api_key else 'Disabled'}")
     print(f"Rate Limit: {config.rate_limit_per_second} req/s per device")
     print("=" * 60)
 
