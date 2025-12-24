@@ -147,11 +147,14 @@ def generate_mqtt_credentials(device_id: str) -> MQTTCredentials:
     """
     Generate MQTT credentials for a device.
 
+    IMPORTANT: Username is set to device_id directly (not "device_{device_id}")
+    to align with ACL pattern: wavira/device/%u/# where %u = username = device_id
+
     Returns:
         MQTTCredentials with username, password, and client_id
     """
-    # Username format: device_{device_id}
-    username = f"device_{device_id}"
+    # Username = device_id (aligns with ACL pattern and topic structure)
+    username = device_id
 
     # Generate secure password
     password = secrets.token_urlsafe(32)

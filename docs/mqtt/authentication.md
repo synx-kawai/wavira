@@ -44,10 +44,13 @@ Wavira uses username/password authentication for MQTT connections. Each device r
 ### Username Format
 
 ```
-device_{device_id}
+{device_id}
 ```
 
-Example: `device_esp32-001`
+Example: `esp32-001`
+
+**IMPORTANT**: Username equals device_id directly (not prefixed with "device_").
+This aligns with the ACL pattern `wavira/device/%u/#` where `%u` is the username.
 
 ### Client ID Format
 
