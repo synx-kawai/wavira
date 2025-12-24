@@ -1,4 +1,4 @@
-menu "Wavira CSI HTTP Configuration"
+menu "Wavira CSI MQTT Configuration"
 
     choice CSI_OUTPUT_MODE
         prompt "CSI Data Output Mode"
@@ -6,7 +6,7 @@ menu "Wavira CSI HTTP Configuration"
         help
             Select how CSI data should be output.
             Serial mode outputs to UART (for development).
-            HTTP mode sends to a server via Wi-Fi.
+            MQTT mode sends to a broker via Wi-Fi.
 
         config CSI_OUTPUT_SERIAL
             bool "Serial Output (UART)"
@@ -14,15 +14,15 @@ menu "Wavira CSI HTTP Configuration"
                 Output CSI data to serial port (traditional mode).
                 Use this for development and debugging with PC-connected ESP32.
 
-        config CSI_OUTPUT_HTTP
-            bool "HTTP Output (Wi-Fi)"
+        config CSI_OUTPUT_MQTT
+            bool "MQTT Output (Wi-Fi)"
             help
-                Send CSI data to HTTP server via Wi-Fi.
+                Send CSI data to MQTT broker via Wi-Fi.
                 Use this for production deployment.
     endchoice
 
     menu "Wi-Fi Configuration"
-        depends on CSI_OUTPUT_HTTP
+        depends on CSI_OUTPUT_MQTT
 
         config WAVIRA_WIFI_SSID
             string "Wi-Fi SSID"
@@ -38,7 +38,7 @@ menu "Wavira CSI HTTP Configuration"
 
         config WAVIRA_WIFI_MAXIMUM_RETRY
             int "Maximum retry attempts"
-            default 5
+            default 10
             help
                 Maximum number of retry attempts for Wi-Fi connection.
                 Set to 0 for infinite retries.
@@ -51,79 +51,84 @@ menu "Wavira CSI HTTP Configuration"
                 4 = WPA_WPA2_PSK, 5 = WPA3_PSK, 6 = WPA2_WPA3_PSK
     endmenu
 
-    menu "HTTP Server Configuration"
-        depends on CSI_OUTPUT_HTTP
+    menu "MQTT Broker Configuration"
+        depends on CSI_OUTPUT_MQTT
 
-        config WAVIRA_SERVER_URL
-            string "Server URL"
-            default "http://192.168.1.100:8080/api/v1/csi"
+        config WAVIRA_MQTT_BROKER_URL
+            string "Broker URL"
+            default "mqtt://192.168.1.100"
             help
-                Full URL of the CSI data receiving endpoint.
-                Example: http://192.168.1.100:8080/api/v1/csi
+                Full URL of the MQTT broker.
+                Example: mqtt://192.168.1.100 or mqtts://example.com
 
-        config WAVIRA_BATCH_ENDPOINT
-            string "Batch Endpoint URL"
-            default "http://192.168.1.100:8080/api/v1/csi/batch"
+        config WAVIRA_MQTT_PORT
+            int "Broker Port"
+            default 1883
             help
-                Full URL of the batch CSI data receiving endpoint.
+                MQTT broker port (default 1883 for TCP, 8883 for SSL).
 
-        config WAVIRA_API_KEY
-            string "API Key"
+        config WAVIRA_MQTT_USERNAME
+            string "Username"
             default ""
             help
-                API key for server authentication.
-                Leave empty if authentication is disabled on server.
+                MQTT username (leave empty if not required).
 
-        config WAVIRA_HTTP_TIMEOUT_MS
-            int "HTTP Request Timeout (ms)"
-            default 5000
-            range 1000 30000
+        config WAVIRA_MQTT_PASSWORD
+            string "Password"
+            default ""
             help
-                Timeout for HTTP requests in milliseconds.
-
-        config WAVIRA_HTTP_MAX_RETRIES
-            int "Maximum HTTP Retries"
-            default 3
-            range 0 10
+                MQTT password (leave empty if not required).
+                
+        config WAVIRA_MQTT_TOPIC_PREFIX
+            string "Topic Prefix"
+            default "wavira"
             help
-                Maximum number of retry attempts for failed HTTP requests.
+                Prefix for MQTT topics. 
+                Data will be published to [prefix]/csi/[device_id]
+                
+        config WAVIRA_MQTT_QOS
+            int "QoS Level"
+            default 0
+            range 0 2
+            help
+                MQTT Quality of Service level (0, 1, or 2).
     endmenu
 
     menu "Device Configuration"
-        depends on CSI_OUTPUT_HTTP
+        depends on CSI_OUTPUT_MQTT
 
         config WAVIRA_DEVICE_ID
             string "Device ID"
             default "esp32-001"
             help
                 Unique identifier for this ESP32 device.
-                Used in CSI data payload and server-side tracking.
+                Used in MQTT topic and payload.
 
         config WAVIRA_DEVICE_ZONE
             string "Device Zone"
             default "default"
             help
                 Zone identifier where this device is installed.
-                Used for spatial organization of multiple devices.
+                Used for spatial organization.
     endmenu
 
     menu "Data Buffering Configuration"
-        depends on CSI_OUTPUT_HTTP
+        depends on CSI_OUTPUT_MQTT
 
         config WAVIRA_BUFFER_SIZE
             int "Ring Buffer Size"
-            default 50
-            range 10 200
+            default 20
+            range 5 100
             help
                 Number of CSI packets to buffer before sending.
-                Larger values reduce network overhead but increase latency.
+                Larger values reduce network overhead but increase latency and memory usage.
 
         config WAVIRA_BATCH_SIZE
             int "Batch Size"
-            default 10
-            range 1 100
+            default 5
+            range 1 50
             help
-                Number of CSI packets to send in each HTTP batch request.
+                Number of CSI packets to send in each MQTT message.
                 Must be less than or equal to buffer size.
 
         config WAVIRA_SEND_INTERVAL_MS
@@ -131,8 +136,7 @@ menu "Wavira CSI HTTP Configuration"
             default 100
             range 50 1000
             help
-                Minimum interval between batch HTTP sends in milliseconds.
-                Prevents overwhelming the server with requests.
+                Minimum interval between batch MQTT sends in milliseconds.
     endmenu
 
     menu "CSI Trigger Configuration"
@@ -150,7 +154,7 @@ menu "Wavira CSI HTTP Configuration"
 
             config CSI_TRIGGER_ROUTER
                 bool "Router Ping"
-                depends on CSI_OUTPUT_HTTP
+                depends on CSI_OUTPUT_MQTT
                 help
                     Ping the connected router to trigger CSI measurements.
                     Simpler setup but may have more interference.
@@ -176,7 +180,7 @@ menu "Wavira CSI HTTP Configuration"
         bool "Enable Debug Serial Output"
         default y
         help
-            Enable debug messages on serial port even in HTTP mode.
+            Enable debug messages on serial port even in MQTT mode.
             Useful for debugging but increases power consumption.
 
 endmenu

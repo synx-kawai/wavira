@@ -5,11 +5,11 @@ set(COMPONENT_REQUIRES
     esp_event
     espressif__esp-now
     driver
-    esp_http_client
+    mqtt
     lwip
 )
 
 idf_component_register(SRC_DIRS "."
                        INCLUDE_DIRS "."
                        REQUIRES ${COMPONENT_REQUIRES}
-                       PRIV_REQUIRES json)
+                       PRIV_REQUIRES json esp-tls)
