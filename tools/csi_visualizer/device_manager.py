@@ -169,7 +169,7 @@ class DeviceAuthManager:
     def _close_connection(self, conn: sqlite3.Connection) -> None:
         """Close a database connection if not using persistent connection."""
         if self._persistent_conn is None:
-            self._close_connection(conn)
+            conn.close()
 
     def _init_database(self):
         """Initialize database schema."""
