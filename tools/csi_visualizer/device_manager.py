@@ -818,7 +818,7 @@ def main():
 
     try:
         if args.command == "register":
-            device, api_key = manager.register_device(
+            device, api_key, mqtt_creds = manager.register_device(
                 args.device_id,
                 zone=args.zone,
                 location=args.location,
@@ -827,8 +827,13 @@ def main():
             print(f"  Device ID: {device.id}")
             print(f"  Zone: {device.zone or 'N/A'}")
             print(f"  Location: {device.location or 'N/A'}")
-            print(f"\n⚠️  IMPORTANT: Save this API key - it will not be shown again!")
+            print(f"\n⚠️  IMPORTANT: Save these credentials - they will not be shown again!")
             print(f"  API Key: {api_key}")
+            if mqtt_creds:
+                print(f"\n  MQTT Credentials:")
+                print(f"    Username: {mqtt_creds.username}")
+                print(f"    Password: {mqtt_creds.password}")
+                print(f"    Client ID: {mqtt_creds.client_id}")
 
         elif args.command == "list":
             devices = manager.list_devices(
