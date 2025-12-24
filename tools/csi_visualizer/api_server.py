@@ -722,8 +722,11 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
     async def verify_admin_key(api_key: Optional[str] = Security(api_key_header)) -> str:
         """管理者APIキーを検証（デバイス管理操作用）"""
         if not config.admin_api_key:
-            # admin_api_keyが設定されていない場合は通常の認証を使用
-            return await verify_api_key(api_key)
+            # admin_api_keyが設定されていない場合はエンドポイントを無効化
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Device management is disabled. Set admin_api_key to enable.",
+            )
 
         if not api_key:
             raise HTTPException(

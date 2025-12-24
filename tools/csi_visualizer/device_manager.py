@@ -121,6 +121,16 @@ def verify_api_key(api_key: str, hashed: str) -> bool:
     return False
 
 
+def create_lookup_hash(api_key: str) -> str:
+    """
+    Create a fast lookup hash for API key indexing.
+
+    Uses SHA256 without salt for consistent, indexed lookups.
+    This is NOT for security verification - use verify_api_key for that.
+    """
+    return hashlib.sha256(api_key.encode()).hexdigest()
+
+
 # =============================================================================
 # Device Manager
 # =============================================================================
@@ -160,6 +170,7 @@ class DeviceAuthManager:
                     CREATE TABLE IF NOT EXISTS devices (
                         id TEXT PRIMARY KEY,
                         api_key_hash TEXT NOT NULL,
+                        api_key_lookup TEXT NOT NULL,
                         zone TEXT,
                         location TEXT,
                         enabled BOOLEAN DEFAULT TRUE,
@@ -183,6 +194,10 @@ class DeviceAuthManager:
                 # インデックス作成
                 cursor.execute("""
                     CREATE INDEX IF NOT EXISTS idx_devices_zone ON devices(zone)
+                """)
+                cursor.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_api_key_lookup
+                    ON devices(api_key_lookup)
                 """)
                 cursor.execute("""
                     CREATE INDEX IF NOT EXISTS idx_device_status_last_seen
@@ -213,6 +228,7 @@ class DeviceAuthManager:
         # Generate API key
         api_key = generate_api_key()
         api_key_hash = hash_api_key(api_key)
+        api_key_lookup = create_lookup_hash(api_key)
 
         now = datetime.utcnow()
 
@@ -228,9 +244,9 @@ class DeviceAuthManager:
 
                 # Insert device
                 cursor.execute("""
-                    INSERT INTO devices (id, api_key_hash, zone, location, enabled, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, TRUE, ?, ?)
-                """, (device_id, api_key_hash, zone, location, now, now))
+                    INSERT INTO devices (id, api_key_hash, api_key_lookup, zone, location, enabled, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, TRUE, ?, ?)
+                """, (device_id, api_key_hash, api_key_lookup, zone, location, now, now))
 
                 # Initialize device status
                 cursor.execute("""
@@ -386,6 +402,7 @@ class DeviceAuthManager:
         """
         api_key = generate_api_key()
         api_key_hash = hash_api_key(api_key)
+        api_key_lookup = create_lookup_hash(api_key)
 
         with self._lock:
             conn = self._get_connection()
@@ -393,9 +410,9 @@ class DeviceAuthManager:
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE devices
-                    SET api_key_hash = ?, updated_at = ?
+                    SET api_key_hash = ?, api_key_lookup = ?, updated_at = ?
                     WHERE id = ?
-                """, (api_key_hash, datetime.utcnow(), device_id))
+                """, (api_key_hash, api_key_lookup, datetime.utcnow(), device_id))
                 conn.commit()
 
                 if cursor.rowcount == 0:
@@ -431,20 +448,35 @@ class DeviceAuthManager:
         """
         Authenticate by API key only (find device by key).
 
+        Uses indexed lookup hash for O(1) performance, then verifies with bcrypt.
+
         Returns:
             Device ID if found and authenticated, None otherwise.
         """
+        # Create lookup hash for indexed search
+        lookup_hash = create_lookup_hash(api_key)
+
         with self._lock:
             conn = self._get_connection()
             try:
                 cursor = conn.cursor()
-                cursor.execute("SELECT id, api_key_hash, enabled FROM devices")
+                # O(1) indexed lookup by hash
+                cursor.execute(
+                    "SELECT id, api_key_hash, enabled FROM devices WHERE api_key_lookup = ?",
+                    (lookup_hash,)
+                )
+                row = cursor.fetchone()
 
-                for row in cursor.fetchall():
-                    if not row["enabled"]:
-                        continue
-                    if verify_api_key(api_key, row["api_key_hash"]):
-                        return row["id"]
+                if not row:
+                    return None
+
+                if not row["enabled"]:
+                    logger.warning(f"Authentication failed: Device '{row['id']}' is disabled")
+                    return None
+
+                # Verify with bcrypt for security
+                if verify_api_key(api_key, row["api_key_hash"]):
+                    return row["id"]
 
                 return None
             finally:
