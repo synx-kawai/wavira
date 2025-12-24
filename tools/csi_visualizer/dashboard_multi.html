@@ -595,7 +595,17 @@ let hourlyChart = null;
 
 // Connect to WebSocket
 function connect() {
-    const ws = new WebSocket('ws://localhost:8765');
+    // Determine WebSocket URL based on protocol (handles HTTPS/HTTP correctly)
+    let wsUrl;
+    if (window.location.protocol === 'https:') {
+        // Production: Use secure WebSocket through Cloudflare tunnel
+        wsUrl = `wss://${window.location.hostname}/ws`;
+    } else {
+        // Development: Use plain WebSocket (localhost or IP address)
+        const wsHost = window.location.hostname || 'localhost';
+        wsUrl = `ws://${wsHost}:8765`;
+    }
+    const ws = new WebSocket(wsUrl);
     wsConnection = ws;
 
     ws.onopen = () => {
@@ -621,6 +631,9 @@ function connect() {
                 updateStatus(data);
             } else if (data.type === 'hourly_summary') {
                 displayHourlySummary(data.data);
+            } else if (data.type === 'history') {
+                // 履歴データを受信してグラフを復元
+                restoreHistoryData(data);
             } else if (data.device_id) {
                 updateDevice(data);
             }
@@ -645,6 +658,74 @@ function updateStatus(status) {
 
     updateSummary();
     ensureDeviceGraphCards();
+}
+
+// Restore history data from server (called on reconnect)
+function restoreHistoryData(historyMsg) {
+    const deviceId = historyMsg.device_id;
+    const historyData = historyMsg.data;
+
+    if (!historyData || historyData.length === 0) return;
+
+    console.log(`Restoring ${historyData.length} history entries for ${deviceId}`);
+
+    // Initialize device if not exists
+    if (!devices[deviceId]) {
+        const firstEntry = historyData[0];
+        devices[deviceId] = {
+            id: deviceId,
+            name: firstEntry.device_name || deviceId,
+            zone: firstEntry.zone || 'default',
+            color: firstEntry.color || '#3fb950',
+            connected: true,
+        };
+    }
+
+    // Initialize history arrays
+    if (!deviceHistory[deviceId]) {
+        deviceHistory[deviceId] = {
+            rssi: [],
+            amplitude: [],
+            breathRatio: [],
+            timestamps: []
+        };
+    }
+
+    const hist = deviceHistory[deviceId];
+
+    // Clear existing history and restore from server data
+    hist.rssi = [];
+    hist.amplitude = [];
+    hist.breathRatio = [];
+    hist.timestamps = [];
+
+    historyData.forEach(entry => {
+        const avgAmp = entry.amps && entry.amps.length > 0
+            ? entry.amps.reduce((a, b) => a + b, 0) / entry.amps.length
+            : 0;
+
+        hist.rssi.push(entry.rssi || -100);
+        hist.amplitude.push(avgAmp);
+        hist.breathRatio.push((entry.breath?.breath_ratio || 0) * 100);
+        // Convert server timestamp to milliseconds if needed
+        hist.timestamps.push(entry.timestamp ? entry.timestamp * 1000 : Date.now());
+    });
+
+    // Update device with latest data
+    const lastEntry = historyData[historyData.length - 1];
+    devices[deviceId].rssi = lastEntry.rssi;
+    devices[deviceId].breath = lastEntry.breath;
+    devices[deviceId].amps = lastEntry.amps;
+    devices[deviceId].lastUpdate = Date.now();
+    devices[deviceId].connected = true;
+
+    // Update UI
+    ensureDeviceGraphCards();
+    updateSummary();
+
+    // Force redraw graphs
+    drawSignalGraph(deviceId);
+    drawCSIGraph(deviceId);
 }
 
 // Update individual device data

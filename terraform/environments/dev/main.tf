@@ -55,9 +55,69 @@ resource "null_resource" "server_setup" {
   }
 }
 
+# Install and configure Mosquitto MQTT broker
+resource "null_resource" "mqtt_broker" {
+  depends_on = [null_resource.server_setup]
+
+  triggers = {
+    mosquitto_config = sha256(local.mosquitto_config)
+  }
+
+  connection {
+    type    = "ssh"
+    host    = var.server_host
+    user    = var.server_user
+    timeout = "2m"
+  }
+
+  # Install Mosquitto
+  provisioner "remote-exec" {
+    inline = [
+      "echo '=== Installing Mosquitto MQTT broker ==='",
+      "apt-get install -y -qq mosquitto mosquitto-clients",
+      "systemctl enable mosquitto",
+    ]
+  }
+
+  # Configure Mosquitto
+  provisioner "file" {
+    content     = local.mosquitto_config
+    destination = "/etc/mosquitto/conf.d/wavira.conf"
+  }
+
+  # Restart Mosquitto
+  provisioner "remote-exec" {
+    inline = [
+      "systemctl restart mosquitto",
+      "sleep 2",
+      "systemctl status mosquitto --no-pager || true",
+      "echo '=== Mosquitto MQTT broker installed and configured ==='",
+    ]
+  }
+}
+
+locals {
+  # SECURITY NOTE: allow_anonymous is enabled for development environment.
+  # For production deployment:
+  # 1. Enable password authentication: password_file /etc/mosquitto/passwd
+  # 2. Use TLS: listener 8883, certfile, keyfile, cafile
+  # 3. Restrict access via firewall (Security Groups)
+  # 4. Consider using ACLs: acl_file /etc/mosquitto/acl
+  mosquitto_config = <<-EOF
+    # Wavira MQTT Broker Configuration
+    listener ${var.mqtt_port}
+    # WARNING: Anonymous access enabled for dev environment only
+    allow_anonymous true
+
+    # Performance tuning
+    max_connections 100
+    max_queued_messages 1000
+  EOF
+}
+
 # Copy application files
 resource "null_resource" "copy_files" {
-  depends_on = [null_resource.server_setup]
+  depends_on = [null_resource.server_setup, null_resource.mqtt_broker]
 
   triggers = {
     api_server_hash     = filemd5("${path.module}/../../../tools/csi_visualizer/api_server.py")
@@ -153,6 +213,59 @@ locals {
     WorkingDirectory=${var.app_dir}
     Environment=PATH=${var.app_dir}/venv/bin:/usr/local/bin:/usr/bin:/bin
     ExecStart=${var.app_dir}/venv/bin/python api_server.py --port ${var.server_port}
+    Restart=always
+    RestartSec=5
+
+    [Install]
+    WantedBy=multi-user.target
+  EOF
+}
+
+# Create MQTT-WebSocket Bridge service
+resource "null_resource" "mqtt_ws_bridge_service" {
+  depends_on = [null_resource.install_deps, null_resource.mqtt_broker]
+
+  triggers = {
+    service_config = sha256(local.mqtt_ws_bridge_service_content)
+    bridge_hash    = filemd5("${path.module}/../../../tools/csi_visualizer/mqtt_ws_bridge.py")
+  }
+
+  connection {
+    type    = "ssh"
+    host    = var.server_host
+    user    = var.server_user
+    timeout = "2m"
+  }
+
+  provisioner "file" {
+    content     = local.mqtt_ws_bridge_service_content
+    destination = "/etc/systemd/system/wavira-mqtt-bridge.service"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "systemctl daemon-reload",
+      "systemctl enable wavira-mqtt-bridge",
+      "systemctl restart wavira-mqtt-bridge",
+      "sleep 2",
+      "systemctl status wavira-mqtt-bridge --no-pager || true",
+    ]
+  }
+}
+
+locals {
+  mqtt_ws_bridge_service_content = <<-EOF
+    [Unit]
+    Description=Wavira MQTT to WebSocket Bridge
+    After=network.target mosquitto.service
+    Wants=mosquitto.service
+
+    [Service]
+    Type=simple
+    User=${var.app_user}
+    WorkingDirectory=${var.app_dir}
+    Environment=PATH=${var.app_dir}/venv/bin:/usr/local/bin:/usr/bin:/bin
+    ExecStart=${var.app_dir}/venv/bin/python mqtt_ws_bridge.py --mqtt-host localhost --ws-port ${var.ws_port}
     Restart=always
     RestartSec=5
 
