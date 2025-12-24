@@ -475,7 +475,13 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
             - "device:{device_id}": デバイス固有APIキー
         """
         # APIキーが設定されていない場合は認証をスキップ
-        if not config.api_keys and not app_state.device_auth_manager:
+        # 静的APIキーがなく、かつ登録済みデバイスもない場合のみ認証を無効化
+        has_static_keys = bool(config.api_keys)
+        has_registered_devices = (
+            app_state.device_auth_manager
+            and app_state.device_auth_manager.has_registered_devices()
+        )
+        if not has_static_keys and not has_registered_devices:
             return "anonymous"
 
         if not api_key:

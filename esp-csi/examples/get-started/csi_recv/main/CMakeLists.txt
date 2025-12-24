@@ -3,20 +3,13 @@ set(COMPONENT_REQUIRES
     esp_wifi
     esp_netif
     esp_event
-    esp_now
+    espressif__esp-now
     driver
+    esp_http_client
+    lwip
 )
-
-# Add HTTP mode dependencies if enabled
-if(CONFIG_CSI_OUTPUT_HTTP)
-    list(APPEND COMPONENT_REQUIRES
-        esp_http_client
-        json
-        lwip
-        esp_ping
-    )
-endif()
 
 idf_component_register(SRC_DIRS "."
                        INCLUDE_DIRS "."
-                       REQUIRES ${COMPONENT_REQUIRES})
+                       REQUIRES ${COMPONENT_REQUIRES}
+                       PRIV_REQUIRES json)

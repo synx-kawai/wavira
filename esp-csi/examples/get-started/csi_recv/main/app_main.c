@@ -165,7 +165,9 @@ typedef struct {
 // Global Variables
 // =============================================================================
 
+#ifdef CONFIG_CSI_TRIGGER_ESPNOW
 static const uint8_t CONFIG_CSI_SEND_MAC[] = {0x1a, 0x00, 0x00, 0x00, 0x00, 0x00};
+#endif
 
 #ifdef CONFIG_CSI_OUTPUT_HTTP
 static EventGroupHandle_t s_wifi_event_group;
@@ -769,7 +771,9 @@ static void wifi_init_espnow(void)
     }
 #endif
 
+#ifdef CONFIG_CSI_TRIGGER_ESPNOW
     ESP_ERROR_CHECK(esp_wifi_set_mac(WIFI_IF_STA, CONFIG_CSI_SEND_MAC));
+#endif
 }
 
 #if CONFIG_IDF_TARGET_ESP32C5
@@ -875,7 +879,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     // Start LED task
-    xTaskCreate(&led_task, "led_task", 2048, NULL, 5, NULL);
+    xTaskCreate(&led_task, "led_task", 4096, NULL, 5, NULL);
 
 #ifdef CONFIG_CSI_OUTPUT_HTTP
     // HTTP Mode
@@ -902,7 +906,7 @@ void app_main(void)
 #endif
 
     // Start HTTP sender task
-    xTaskCreate(&http_sender_task, "http_sender", 8192, NULL, 5, NULL);
+    xTaskCreate(&http_sender_task, "http_sender", 16384, NULL, 5, NULL);
 
 #else
     // Serial Mode (ESP-NOW)
