@@ -1,0 +1,20 @@
+# Wavira CSI Visualizer Dependencies
+
+# Web Framework
+fastapi>=0.100.0
+uvicorn>=0.22.0
+pydantic>=2.0.0
+
+# MQTT Client
+paho-mqtt>=2.0.0
+
+# Configuration
+pyyaml>=6.0
+
+# Security
+bcrypt>=4.0.0
+
+# WebSocket
+websockets>=11.0
+
+# Database (SQLite is built-in)

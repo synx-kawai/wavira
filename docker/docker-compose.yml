@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: wavira-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # MQTT
+      - "8883:8883"   # MQTT over TLS (when enabled)
+      - "9001:9001"   # WebSocket
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+      # Uncomment for TLS certificates
+      # - ./mosquitto/certs:/mosquitto/certs:ro
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-W", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - wavira-network
+
+  # API Server with MQTT support
+  api-server:
+    build:
+      context: ../tools/csi_visualizer
+      dockerfile: Dockerfile
+    container_name: wavira-api-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - MQTT_BROKER_HOST=mosquitto
+      - MQTT_BROKER_PORT=1883
+      - MQTT_USERNAME=wavira_server
+      - MQTT_PASSWORD=${MQTT_SERVER_PASSWORD:-wavira_server_password}
+      - DATABASE_PATH=/data/history.db
+      - DEVICES_DB_PATH=/data/devices.db
+    volumes:
+      - api_data:/data
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    networks:
+      - wavira-network
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  api_data:
+
+networks:
+  wavira-network:
+    driver: bridge

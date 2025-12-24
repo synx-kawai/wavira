@@ -138,6 +138,14 @@ class DeviceRegisterRequest(BaseModel):
     location: Optional[str] = Field(None, max_length=128, description="設置場所")
 
 
+class MQTTCredentialsResponse(BaseModel):
+    """MQTT認証情報レスポンス"""
+
+    username: str
+    password: str
+    client_id: str
+
+
 class DeviceRegisterResponse(BaseModel):
     """デバイス登録レスポンス"""
 
@@ -145,7 +153,8 @@ class DeviceRegisterResponse(BaseModel):
     api_key: str
     zone: Optional[str] = None
     location: Optional[str] = None
-    message: str = "Device registered successfully. Save the API key - it will not be shown again."
+    mqtt_credentials: Optional[MQTTCredentialsResponse] = None
+    message: str = "Device registered successfully. Save the API key and MQTT credentials - they will not be shown again."
 
 
 class DeviceUpdateRequest(BaseModel):
@@ -859,9 +868,9 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
         request: DeviceRegisterRequest,
         api_key: str = Depends(verify_admin_key),
     ) -> DeviceRegisterResponse:
-        """新規デバイスを登録しAPIキーを発行"""
+        """新規デバイスを登録しAPIキーとMQTT認証情報を発行"""
         try:
-            device, plain_api_key = app_state.device_auth_manager.register_device(
+            device, plain_api_key, mqtt_creds = app_state.device_auth_manager.register_device(
                 device_id=request.device_id,
                 zone=request.zone,
                 location=request.location,
@@ -869,11 +878,20 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
 
             logger.info(f"Device registered via API: {device.id}")
 
+            mqtt_response = None
+            if mqtt_creds:
+                mqtt_response = MQTTCredentialsResponse(
+                    username=mqtt_creds.username,
+                    password=mqtt_creds.password,
+                    client_id=mqtt_creds.client_id,
+                )
+
             return DeviceRegisterResponse(
                 device_id=device.id,
                 api_key=plain_api_key,
                 zone=device.zone,
                 location=device.location,
+                mqtt_credentials=mqtt_response,
             )
         except ValueError as e:
             raise HTTPException(

@@ -1,0 +1,45 @@
+# Mosquitto ACL Configuration for Wavira
+# https://mosquitto.org/man/mosquitto-conf-5.html#idm1346
+
+# =============================================================================
+# Pattern-based ACL
+# =============================================================================
+
+# Devices can publish to their own topics
+pattern write wavira/device/%u/#
+
+# Devices can read system announcements
+pattern read wavira/system/announcement
+
+# =============================================================================
+# Server User (for API server)
+# =============================================================================
+
+user wavira_server
+
+# Server can read all device topics
+topic read wavira/device/#
+
+# Server can publish announcements
+topic write wavira/system/announcement
+
+# =============================================================================
+# Admin User (for management tools)
+# =============================================================================
+
+user wavira_admin
+
+# Admin has full access
+topic readwrite #
+
+# =============================================================================
+# Device Users
+# =============================================================================
+
+# Individual device users are created with pattern: device_{device_id}
+# Their username (%u) determines which topics they can access
+
+# Example device configuration:
+# user device_esp32-001
+# topic write wavira/device/esp32-001/#
+# topic read wavira/system/announcement
