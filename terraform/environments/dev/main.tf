@@ -97,9 +97,16 @@ resource "null_resource" "mqtt_broker" {
 }
 
 locals {
+  # SECURITY NOTE: allow_anonymous is enabled for development environment.
+  # For production deployment:
+  # 1. Enable password authentication: password_file /etc/mosquitto/passwd
+  # 2. Use TLS: listener 8883, certfile, keyfile, cafile
+  # 3. Restrict access via firewall (Security Groups)
+  # 4. Consider using ACLs: acl_file /etc/mosquitto/acl
   mosquitto_config = <<-EOF
     # Wavira MQTT Broker Configuration
     listener ${var.mqtt_port}
+    # WARNING: Anonymous access enabled for dev environment only
     allow_anonymous true
 
     # Performance tuning

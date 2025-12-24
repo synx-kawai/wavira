@@ -595,13 +595,15 @@ let hourlyChart = null;
 
 // Connect to WebSocket
 function connect() {
-    // Use Cloudflare tunnel for production, local for development
+    // Determine WebSocket URL based on protocol (handles HTTPS/HTTP correctly)
     let wsUrl;
-    if (window.location.hostname === 'localhost') {
-        wsUrl = 'ws://localhost:8765';
-    } else {
-        // Use secure WebSocket through Cloudflare tunnel
+    if (window.location.protocol === 'https:') {
+        // Production: Use secure WebSocket through Cloudflare tunnel
         wsUrl = `wss://${window.location.hostname}/ws`;
+    } else {
+        // Development: Use plain WebSocket (localhost or IP address)
+        const wsHost = window.location.hostname || 'localhost';
+        wsUrl = `ws://${wsHost}:8765`;
     }
     const ws = new WebSocket(wsUrl);
     wsConnection = ws;

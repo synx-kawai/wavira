@@ -16,11 +16,9 @@ import logging
 import signal
 import sys
 import time
-import threading
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
-from queue import Queue
+from typing import Dict, Optional, Set
 
 import paho.mqtt.client as mqtt
 import websockets
@@ -52,6 +50,8 @@ class MQTTWebSocketBridge:
 
     # 履歴データの最大保存数（2分間 x 約10Hz = 1200データポイント）
     HISTORY_MAX_SIZE = 1200
+    # デバイスクリーンアップの閾値（1時間未更新でメモリから削除）
+    DEVICE_CLEANUP_THRESHOLD = 3600
 
     def __init__(self, mqtt_host: str, mqtt_port: int, ws_port: int):
         self.mqtt_host = mqtt_host
@@ -70,7 +70,8 @@ class MQTTWebSocketBridge:
         self.ws_clients: Set = set()
         self.mqtt_client: Optional[mqtt.Client] = None
         self.running = False
-        self.message_queue: Queue = Queue()
+        # asyncio.Queueを使用（イベント駆動型）
+        self.async_queue: Optional[asyncio.Queue] = None
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         # デバイスごとの履歴データ（リングバッファ）
         self.device_history: Dict[str, deque] = {}
@@ -86,8 +87,12 @@ class MQTTWebSocketBridge:
 
     def _on_mqtt_message(self, client, userdata, msg):
         """MQTTメッセージ受信コールバック"""
-        # キューに追加してasyncioループで処理
-        self.message_queue.put((msg.topic, msg.payload))
+        # スレッドセーフにasyncioキューに追加
+        if self.loop and self.async_queue:
+            self.loop.call_soon_threadsafe(
+                self.async_queue.put_nowait,
+                (msg.topic, msg.payload)
+            )
 
     def _update_device(self, device_id: str, data: dict):
         """デバイスデータを更新"""
@@ -147,6 +152,21 @@ class MQTTWebSocketBridge:
             "timestamp": time.time()
         }
         self.device_history[device_id].append(history_entry)
+
+    def _cleanup_old_devices(self):
+        """長期間未更新のデバイスをメモリから削除（GC処理）"""
+        now = time.time()
+        devices_to_remove = []
+
+        for device_id, dev in self.devices.items():
+            if now - dev.last_update > self.DEVICE_CLEANUP_THRESHOLD:
+                devices_to_remove.append(device_id)
+
+        for device_id in devices_to_remove:
+            del self.devices[device_id]
+            if device_id in self.device_history:
+                del self.device_history[device_id]
+            logger.info(f"Cleaned up inactive device: {device_id}")
 
     async def _broadcast_device_data(self, dev: DeviceState):
         """WebSocketクライアントにデバイスデータをブロードキャスト"""
@@ -249,29 +269,30 @@ class MQTTWebSocketBridge:
             logger.info(f"WebSocket client disconnected: {client_addr}")
 
     async def _process_mqtt_messages(self):
-        """MQTTメッセージを処理"""
+        """MQTTメッセージを処理（イベント駆動型）"""
         while self.running:
             try:
-                # キューからメッセージを取得（非ブロッキング）
-                while not self.message_queue.empty():
-                    topic, payload = self.message_queue.get_nowait()
-                    try:
-                        data = json.loads(payload.decode())
-                        if topic.startswith("wavira/csi/"):
-                            device_id = data.get("id", topic.split("/")[-1])
-                            dev = self._update_device(device_id, data)
-                            await self._broadcast_device_data(dev)
-                        elif topic.startswith("wavira/device/") and topic.endswith("/status"):
-                            device_id = topic.split("/")[2]
-                            logger.info(f"Device {device_id} status: {data}")
-                    except Exception as e:
-                        logger.error(f"Error processing message: {e}")
-            except Exception:
-                pass
-            await asyncio.sleep(0.05)
+                # asyncio.Queueからイベント駆動でメッセージを取得（sleepなし）
+                topic, payload = await self.async_queue.get()
+                try:
+                    data = json.loads(payload.decode())
+                    if topic.startswith("wavira/csi/"):
+                        device_id = data.get("id", topic.split("/")[-1])
+                        dev = self._update_device(device_id, data)
+                        await self._broadcast_device_data(dev)
+                    elif topic.startswith("wavira/device/") and topic.endswith("/status"):
+                        device_id = topic.split("/")[2]
+                        logger.info(f"Device {device_id} status: {data}")
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Queue error: {e}")
 
     async def _periodic_status_broadcast(self):
         """定期的にステータスをブロードキャスト"""
+        cleanup_counter = 0
         while self.running:
             await asyncio.sleep(1)
 
@@ -284,6 +305,12 @@ class MQTTWebSocketBridge:
             # ステータスをブロードキャスト
             for ws in list(self.ws_clients):
                 await self._send_status(ws)
+
+            # 定期的にデバイスクリーンアップを実行（60秒ごと）
+            cleanup_counter += 1
+            if cleanup_counter >= 60:
+                self._cleanup_old_devices()
+                cleanup_counter = 0
 
     def _start_mqtt(self):
         """MQTTクライアントを開始"""
@@ -302,7 +329,8 @@ class MQTTWebSocketBridge:
     async def run(self):
         """ブリッジサーバーを実行"""
         self.running = True
-        self.loop = asyncio.get_event_loop()
+        self.loop = asyncio.get_running_loop()
+        self.async_queue = asyncio.Queue()
 
         # MQTTクライアントを開始
         self._start_mqtt()
