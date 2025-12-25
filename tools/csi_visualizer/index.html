@@ -1,447 +1,1457 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>CSI Breathing Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Zone Crowd Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
 <style>
+:root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --border-color: #30363d;
+    --text-primary: #f0f6fc;
+    --text-secondary: #8b949e;
+    --accent-green: #3fb950;
+    --accent-yellow: #d29922;
+    --accent-orange: #db6d28;
+    --accent-red: #f85149;
+    --accent-blue: #58a6ff;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #1a1a1a; color: #0f0; font: 12px 'Courier New', monospace; }
-.container { display: flex; flex-direction: column; height: 100vh; padding: 10px; gap: 10px; }
+
+body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+}
+
+.app {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 16px;
+}
+
+/* Header */
 .header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 10px 15px; background: #111; border: 1px solid #333;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 16px;
 }
-.title { font-size: 18px; font-weight: bold; }
-.status { display: flex; gap: 20px; }
-.status-item { display: flex; align-items: center; gap: 5px; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: #f00; }
-.dot.on { background: #0f0; }
-.main { display: flex; flex: 1; gap: 10px; min-height: 0; }
-.plot-area { flex: 1; display: flex; flex-direction: column; gap: 10px; }
-.plot-container {
-    flex: 1; position: relative; background: #0a0a0a;
-    border: 1px solid #333; min-height: 200px;
-}
-.plot-title {
-    position: absolute; top: 5px; left: 10px;
-    font-size: 11px; color: #666;
-}
-.y-axis {
-    position: absolute; left: 5px; top: 30px; bottom: 30px;
-    display: flex; flex-direction: column; justify-content: space-between;
-    font-size: 10px; color: #666; width: 35px; text-align: right;
-}
-.x-axis {
-    position: absolute; left: 45px; right: 10px; bottom: 5px;
-    display: flex; justify-content: space-between;
-    font-size: 10px; color: #666;
-}
-canvas { position: absolute; top: 25px; left: 45px; right: 10px; bottom: 25px; }
-.sidebar { width: 220px; display: flex; flex-direction: column; gap: 10px; }
-.panel { background: #111; border: 1px solid #333; padding: 10px; }
-.panel-title { font-size: 11px; color: #666; border-bottom: 1px solid #333; padding-bottom: 5px; margin-bottom: 8px; }
-.row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
-.label { color: #666; }
-.value { color: #0f0; }
 
-/* Breathing Monitor */
-.breath-panel { background: #111; border: 2px solid #333; padding: 15px; }
-.breath-panel.holding { border-color: #f00; background: #1a0000; }
-.breath-panel.breathing { border-color: #0f0; }
-.breath-status {
-    font-size: 24px; font-weight: bold; text-align: center;
-    padding: 10px; margin-bottom: 10px;
+.header-title {
+    font-size: 24px;
+    font-weight: 600;
 }
-.breath-status.breathing { color: #0f0; }
-.breath-status.holding { color: #f00; animation: pulse 0.5s infinite; }
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-}
-.breath-meter {
-    height: 20px; background: #222; border: 1px solid #444;
-    margin: 10px 0; position: relative; overflow: hidden;
-}
-.breath-meter-fill {
-    height: 100%; background: linear-gradient(90deg, #0a0, #0f0);
-    transition: width 0.3s;
-}
-.breath-meter-threshold {
-    position: absolute; top: 0; bottom: 0; width: 2px;
-    background: #f00; left: 10%;
-}
-.breath-info { display: flex; justify-content: space-between; font-size: 14px; }
-.hold-timer {
-    font-size: 36px; font-weight: bold; text-align: center;
-    color: #f00; padding: 10px; display: none;
-}
-.breath-panel.holding .hold-timer { display: block; }
 
-.history-container { position: relative; height: 100px; background: #0a0a0a; border: 1px solid #333; }
-#histCanvas { position: absolute; top: 15px; left: 30px; right: 5px; bottom: 15px; }
-.hist-y { position: absolute; left: 3px; top: 15px; bottom: 15px; display: flex; flex-direction: column; justify-content: space-between; font-size: 9px; color: #666; }
-.hist-title { position: absolute; top: 2px; left: 5px; font-size: 10px; color: #666; }
+.header-status {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent-red);
+}
+
+.status-dot.connected { background: var(--accent-green); }
+
+/* Summary Card */
+.summary-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+}
+
+.summary-item {
+    text-align: center;
+}
+
+.summary-value {
+    font-size: 48px;
+    font-weight: 700;
+}
+
+.summary-value.green { color: var(--accent-green); }
+.summary-value.yellow { color: var(--accent-yellow); }
+.summary-value.red { color: var(--accent-red); }
+
+.summary-label {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-top: 4px;
+}
+
+/* Zone Grid */
+.zone-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 16px;
+}
+
+/* Zone Card */
+.zone-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    transition: border-color 0.3s;
+}
+
+.zone-card.alert {
+    border-color: var(--accent-red);
+    animation: alert-pulse 1s infinite;
+}
+
+@keyframes alert-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.4); }
+    50% { box-shadow: 0 0 0 10px rgba(248, 81, 73, 0); }
+}
+
+.zone-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.zone-name {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.zone-status {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.zone-status.empty { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
+.zone-status.low { background: rgba(88, 166, 255, 0.2); color: var(--accent-blue); }
+.zone-status.medium { background: rgba(210, 153, 34, 0.2); color: var(--accent-yellow); }
+.zone-status.high { background: rgba(248, 81, 73, 0.2); color: var(--accent-red); }
+
+/* Capacity Bar */
+.capacity-bar {
+    height: 24px;
+    background: var(--bg-tertiary);
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 12px 0;
+    position: relative;
+}
+
+.capacity-fill {
+    height: 100%;
+    border-radius: 12px;
+    transition: width 0.5s ease, background 0.3s;
+}
+
+.capacity-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 12px;
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+/* Device List */
+.device-list {
+    margin-top: 16px;
+}
+
+.device-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.device-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 12px;
+}
+
+.device-indicator.offline { background: var(--accent-red); }
+
+.device-info {
+    flex: 1;
+}
+
+.device-name {
+    font-weight: 500;
+}
+
+.device-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.device-status {
+    text-align: right;
+}
+
+.device-presence {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.device-presence.present { color: var(--accent-green); }
+.device-presence.absent { color: var(--text-secondary); }
+
+/* Floor Map */
+.floor-map-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 16px;
+}
+
+.floor-map {
+    position: relative;
+    height: 300px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.map-device {
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transform: translate(-50%, -50%);
+    border: 3px solid;
+    background: var(--bg-secondary);
+    transition: all 0.3s;
+}
+
+.map-device.present {
+    animation: map-pulse 2s infinite;
+}
+
+@keyframes map-pulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    50% { transform: translate(-50%, -50%) scale(1.1); }
+}
+
+.map-device-icon {
+    font-size: 20px;
+}
+
+.map-device-name {
+    font-size: 10px;
+    margin-top: 2px;
+}
+
+/* Alert Banner */
+.alert-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 12px 16px;
+    background: var(--accent-red);
+    color: white;
+    text-align: center;
+    font-weight: 600;
+    transform: translateY(-100%);
+    transition: transform 0.3s ease;
+    z-index: 1000;
+}
+
+.alert-banner.visible {
+    transform: translateY(0);
+}
+
+/* Signal Graphs Section */
+.signal-section {
+    margin-top: 16px;
+}
+
+.signal-section-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.device-graphs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 16px;
+}
+
+.device-graph-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.device-graph-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.device-graph-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.device-graph-title .indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.device-graph-title .name {
+    font-weight: 600;
+}
+
+.device-graph-stats {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.device-graph-stats .stat-value {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.graph-container {
+    position: relative;
+    height: 120px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.graph-container canvas {
+    width: 100%;
+    height: 100%;
+}
+
+.graph-label {
+    position: absolute;
+    top: 4px;
+    left: 8px;
+    font-size: 10px;
+    color: var(--text-secondary);
+    background: rgba(0,0,0,0.5);
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.graph-legend {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    font-size: 12px;
+    color: var(--text-primary);
+    padding: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-top: 8px;
+}
+
+.graph-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.graph-legend-item .line {
+    width: 20px;
+    height: 3px;
+    border-radius: 2px;
+}
+
+.graph-legend-item .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+/* CSI Waveform Mini */
+.csi-waveform {
+    height: 80px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-top: 8px;
+}
+
+/* Hourly Chart Section */
+.hourly-section {
+    margin-top: 16px;
+}
+
+.hourly-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.hourly-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.hourly-title {
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.hourly-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.hourly-controls select {
+    padding: 6px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.hourly-chart-container {
+    position: relative;
+    height: 250px;
+}
+
+.hourly-legend {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.hourly-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.hourly-legend-item .bar {
+    width: 16px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+.history-link {
+    color: var(--accent-blue);
+    text-decoration: none;
+    font-size: 14px;
+}
+
+.history-link:hover {
+    text-decoration: underline;
+}
 </style>
 </head>
 <body>
-<div class="container">
-    <div class="header">
-        <div class="title">CSI Breathing Monitor</div>
-        <div class="status">
-            <div class="status-item">
-                <div class="dot" id="dot"></div>
-                <span id="connStatus">Disconnected</span>
-            </div>
-            <div class="status-item">PKT: <span id="pktNum">0</span></div>
-            <div class="status-item">FPS: <span id="fpsVal">0</span></div>
+
+<div class="alert-banner" id="alertBanner">
+    ⚠️ 混雑エリアがあります
+</div>
+
+<div class="app">
+    <header class="header">
+        <h1 class="header-title">🏢 Multi-Zone Crowd Monitor</h1>
+        <div class="header-status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">接続中...</span>
+            <span>デバイス: <span id="deviceCount">0</span></span>
+        </div>
+    </header>
+
+    <!-- Summary -->
+    <div class="summary-card">
+        <div class="summary-item">
+            <div class="summary-value green" id="totalPresent">0</div>
+            <div class="summary-label">検出人数（合計）</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-value" id="activeZones">0</div>
+            <div class="summary-label">アクティブゾーン</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-value" id="onlineDevices">0</div>
+            <div class="summary-label">オンラインデバイス</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-value" id="alertZones">0</div>
+            <div class="summary-label">混雑アラート</div>
         </div>
     </div>
-    <div class="main">
-        <div class="plot-area">
-            <div class="plot-container">
-                <div class="plot-title">CSI Amplitude</div>
-                <div class="y-axis" id="yAxis"></div>
-                <div class="x-axis" id="xAxis"></div>
-                <canvas id="mainCanvas"></canvas>
+
+    <!-- Zone Cards -->
+    <div class="zone-grid" id="zoneGrid">
+        <!-- Zones will be dynamically added here -->
+    </div>
+
+    <!-- Signal Graphs Section -->
+    <div class="signal-section">
+        <div class="signal-section-title">
+            📊 デバイス別電波状況（リアルタイム）
+        </div>
+        <div class="device-graphs-grid" id="deviceGraphsGrid">
+            <!-- Device graphs will be dynamically added here -->
+        </div>
+    </div>
+
+    <!-- Hourly Average Section -->
+    <div class="hourly-section">
+        <div class="hourly-card">
+            <div class="hourly-header">
+                <div class="hourly-title">
+                    📊 時間帯別平均
+                </div>
+                <div class="hourly-controls">
+                    <select id="hourlyPeriod" onchange="loadHourlyData()">
+                        <option value="6">過去6時間</option>
+                        <option value="12">過去12時間</option>
+                        <option value="24" selected>過去24時間</option>
+                        <option value="48">過去48時間</option>
+                    </select>
+                    <a href="history.html" class="history-link">詳細履歴 →</a>
+                </div>
             </div>
-            <div class="history-container">
-                <div class="hist-title">Amplitude History</div>
-                <div class="hist-y" id="histY"></div>
-                <canvas id="histCanvas"></canvas>
+            <div class="hourly-chart-container">
+                <canvas id="hourlyChart"></canvas>
             </div>
         </div>
-        <div class="sidebar">
-            <!-- Breathing Panel -->
-            <div class="breath-panel" id="breathPanel">
-                <div class="panel-title">Breathing Detection</div>
-                <div class="breath-status" id="breathStatus">--</div>
-                <div class="hold-timer" id="holdTimer">0.0s</div>
-                <div class="breath-meter">
-                    <div class="breath-meter-fill" id="breathMeter"></div>
-                    <div class="breath-meter-threshold"></div>
-                </div>
-                <div class="breath-info">
-                    <span>Power: <span id="breathPower">--%</span></span>
-                    <span>Rate: <span id="breathRate">--</span>/min</span>
-                </div>
-            </div>
+    </div>
 
-            <div class="panel">
-                <div class="panel-title">Signal Info</div>
-                <div class="row"><span class="label">RSSI</span><span class="value" id="rssi">-- dBm</span></div>
-                <div class="row"><span class="label">Channel</span><span class="value" id="channel">--</span></div>
-                <div class="row"><span class="label">Subcarriers</span><span class="value" id="subcarriers">--</span></div>
-                <div class="row"><span class="label">Avg Amp</span><span class="value" id="avgAmp">--</span></div>
-                <div class="row"><span class="label">Max Amp</span><span class="value" id="maxAmp">--</span></div>
-            </div>
-            <div class="panel">
-                <div class="panel-title">Controls</div>
-                <div class="row">
-                    <span class="label">Gain</span>
-                    <input type="range" id="gain" min="0.5" max="3" step="0.1" value="1" style="width:80px">
-                    <span class="value" id="gainVal">1.0</span>
-                </div>
-            </div>
+    <!-- Floor Map -->
+    <div class="floor-map-card">
+        <h3 style="margin-bottom: 16px;">フロアマップ</h3>
+        <div class="floor-map" id="floorMap">
+            <!-- Devices will be dynamically added here -->
         </div>
     </div>
 </div>
 
 <script>
-const mainCanvas = document.getElementById('mainCanvas');
-const histCanvas = document.getElementById('histCanvas');
-const mainCtx = mainCanvas.getContext('2d', {alpha: false});
-const histCtx = histCanvas.getContext('2d', {alpha: false});
+// Constants
+const HISTORY_LENGTH = 120; // 2 minutes at 1 sample/sec
+const GRAPH_UPDATE_INTERVAL = 100; // ms
 
-let data = null;
-let dataVersion = 0;
-let lastDrawnVersion = -1;
+// State
+let connected = false;
+let devices = {};
+let zones = {};
+let deviceHistory = {}; // { deviceId: { rssi: [], amplitude: [], breathRatio: [], timestamps: [] } }
+let deviceCanvases = {}; // { deviceId: { signal: canvas, waveform: canvas } }
+let mqttClient = null;
+let hourlyChart = null;
 
-const MAX_HIST = 100;
-const history = new Float32Array(MAX_HIST);
-let histHead = 0;
-let histCount = 0;
-
-let gain = 1.0;
-let frameCount = 0;
-let lastFpsTime = performance.now();
-let maxAmpGlobal = 100;
-let lastDomUpdate = 0;
-
-// Resize canvases
-function resize() {
-    const mainRect = mainCanvas.parentElement.getBoundingClientRect();
-    mainCanvas.width = mainRect.width - 55;
-    mainCanvas.height = mainRect.height - 50;
-
-    const histRect = histCanvas.parentElement.getBoundingClientRect();
-    histCanvas.width = histRect.width - 35;
-    histCanvas.height = histRect.height - 30;
-
-    updateAxisLabels();
+// Get MQTT URL based on environment
+function getMqttUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const mqttParam = urlParams.get('mqtt');
+    if (mqttParam) {
+        return mqttParam.startsWith('ws') ? mqttParam : `ws://${mqttParam}`;
+    }
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return 'ws://localhost:9001';
+    }
+    // Use WSS through nginx proxy for HTTPS, WS direct for HTTP
+    if (window.location.protocol === "https:") {
+        return `wss://${hostname}/mqtt`;
+    }
+    return `ws://${hostname}:9001`;
 }
 
-function updateAxisLabels() {
-    const yAxis = document.getElementById('yAxis');
-    yAxis.innerHTML = '';
-    for (let i = 0; i <= 4; i++) {
-        const val = Math.round(maxAmpGlobal * (1 - i/4));
-        const div = document.createElement('div');
-        div.textContent = val;
-        yAxis.appendChild(div);
+// Get API URL for historical data
+function getApiUrl() {
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return 'http://localhost:8080';
+    }
+    return `${window.location.protocol}//${hostname}`;
+}
+
+// Connect to MQTT broker
+function connect() {
+    const mqttUrl = getMqttUrl();
+    console.log('Connecting to MQTT:', mqttUrl);
+
+    mqttClient = mqtt.connect(mqttUrl, {
+        clientId: 'wavira-dashboard-' + Math.random().toString(16).substr(2, 8),
+        keepalive: 30,
+        clean: true,
+        reconnectPeriod: 2000,
+    });
+
+    mqttClient.on('connect', () => {
+        connected = true;
+        document.getElementById('statusDot').classList.add('connected');
+        document.getElementById('statusText').textContent = '接続済み';
+
+        // Subscribe to analysis data
+        mqttClient.subscribe('wavira/analysis/#', { qos: 0 });
+        mqttClient.subscribe('wavira/device/+/status', { qos: 1 });
+        console.log('Subscribed to MQTT topics');
+
+        // Load hourly data via REST API
+        loadHourlyData();
+        // Load known devices
+        loadDevices();
+    });
+
+    mqttClient.on('close', () => {
+        connected = false;
+        document.getElementById('statusDot').classList.remove('connected');
+        document.getElementById('statusText').textContent = '再接続中...';
+    });
+
+    mqttClient.on('error', (err) => {
+        console.error('MQTT error:', err);
+    });
+
+    mqttClient.on('message', (topic, message) => {
+        try {
+            const data = JSON.parse(message.toString());
+
+            // Handle analysis data (main device data)
+            if (topic.startsWith('wavira/analysis/') && !topic.endsWith('/presence') && !topic.endsWith('/breathing')) {
+                // Convert MQTT format to expected format
+                const deviceData = {
+                    device_id: data.device_id,
+                    device_name: data.device_id,
+                    zone: 'default',
+                    color: getDeviceColor(data.device_id),
+                    rssi: data.rssi,
+                    amps: data.amps || [],
+                    breath: {
+                        present: data.present,
+                        breath_ratio: data.breath_ratio,
+                        breathing: data.breathing,
+                        breath_rate: data.breathing_rate
+                    }
+                };
+                updateDevice(deviceData);
+            }
+            // Handle device status
+            else if (topic.startsWith('wavira/device/') && topic.endsWith('/status')) {
+                const deviceId = topic.split('/')[2];
+                console.log('Device status:', deviceId, data);
+            }
+        } catch (err) {
+            console.debug('Parse error:', err);
+        }
+    });
+}
+
+// Get color for device based on index
+function getDeviceColor(deviceId) {
+    const colors = ['#3fb950', '#58a6ff', '#d29922', '#f85149', '#a371f7', '#79c0ff'];
+    const index = Object.keys(devices).indexOf(deviceId);
+    return colors[index >= 0 ? index % colors.length : Object.keys(devices).length % colors.length];
+}
+
+// Load devices from REST API
+async function loadDevices() {
+    try {
+        const response = await fetch(`${getApiUrl()}/api/v1/devices`);
+        if (!response.ok) return;
+        const deviceList = await response.json();
+        for (const dev of deviceList) {
+            if (!devices[dev.device_id]) {
+                devices[dev.device_id] = {
+                    id: dev.device_id,
+                    name: dev.device_id,
+                    zone: dev.zone || 'default',
+                    color: getDeviceColor(dev.device_id),
+                    connected: dev.online,
+                    rssi: dev.rssi
+                };
+            }
+            // Load history for this device
+            await loadDeviceHistory(dev.device_id);
+        }
+        ensureDeviceGraphCards();
+        updateSummary();
+    } catch (e) {
+        console.warn('Failed to load devices:', e);
+    }
+}
+
+// Load recent history for a device from REST API
+async function loadDeviceHistory(deviceId) {
+    try {
+        // Load last 120 records (2 minutes at ~1 sample/sec)
+        const response = await fetch(`${getApiUrl()}/api/v1/history/${deviceId}?limit=${HISTORY_LENGTH}`);
+        if (!response.ok) return;
+        const historyData = await response.json();
+
+        if (!historyData || historyData.length === 0) return;
+
+        console.log(`Loaded ${historyData.length} history entries for ${deviceId}`);
+
+        // Initialize history arrays
+        if (!deviceHistory[deviceId]) {
+            deviceHistory[deviceId] = {
+                rssi: [],
+                amplitude: [],
+                breathRatio: [],
+                timestamps: []
+            };
+        }
+
+        const hist = deviceHistory[deviceId];
+
+        // Clear and restore from server data
+        hist.rssi = [];
+        hist.amplitude = [];
+        hist.breathRatio = [];
+        hist.timestamps = [];
+
+        // historyData is already sorted by timestamp ASC from the API
+        historyData.forEach(entry => {
+            hist.rssi.push(entry.rssi || -100);
+            hist.amplitude.push(entry.avg_amplitude || 0);
+            hist.breathRatio.push((entry.breath_ratio || 0) * 100);
+            hist.timestamps.push(entry.timestamp * 1000); // Convert to milliseconds
+        });
+
+        // Update device with latest data
+        if (historyData.length > 0) {
+            const lastEntry = historyData[historyData.length - 1];
+            devices[deviceId].rssi = lastEntry.rssi;
+            devices[deviceId].breath = {
+                present: lastEntry.present,
+                breath_ratio: lastEntry.breath_ratio,
+                breathing: lastEntry.breathing
+            };
+            devices[deviceId].lastUpdate = Date.now();
+        }
+    } catch (e) {
+        console.warn(`Failed to load history for ${deviceId}:`, e);
+    }
+}
+
+// Update status from server
+function updateStatus(status) {
+    if (status.devices) {
+        status.devices.forEach(dev => {
+            devices[dev.id] = { ...devices[dev.id], ...dev };
+        });
     }
 
-    const xAxis = document.getElementById('xAxis');
-    const numSub = data ? data.amps.length : 64;
-    xAxis.innerHTML = `<span>0</span><span>${Math.round(numSub/4)}</span><span>${Math.round(numSub/2)}</span><span>${Math.round(numSub*3/4)}</span><span>${numSub}</span>`;
+    if (status.zones) {
+        zones = status.zones;
+        renderZones();
+    }
 
-    const histY = document.getElementById('histY');
-    histY.innerHTML = `<span>${Math.round(maxAmpGlobal)}</span><span>${Math.round(maxAmpGlobal/2)}</span><span>0</span>`;
+    updateSummary();
+    ensureDeviceGraphCards();
 }
 
-window.onresize = resize;
-resize();
+// Restore history data from server (called on reconnect)
+function restoreHistoryData(historyMsg) {
+    const deviceId = historyMsg.device_id;
+    const historyData = historyMsg.data;
 
-// WebSocket
-function connect() {
-    // Check for URL parameter override: ?ws=host:port or ?wss=host/path
-    const urlParams = new URLSearchParams(window.location.search);
-    const wsParam = urlParams.get('ws');
-    const wssParam = urlParams.get('wss');
+    if (!historyData || historyData.length === 0) return;
 
-    let wsUrl;
-    if (wssParam) {
-        // Secure WebSocket override (e.g., ?wss=52.196.197.127/ws)
-        wsUrl = `wss://${wssParam}`;
-    } else if (wsParam) {
-        // Plain WebSocket override (e.g., ?ws=52.196.197.127:8765)
-        wsUrl = `ws://${wsParam}`;
-    } else {
-        const hostname = window.location.hostname;
-        if (window.location.protocol === 'https:') {
-            // Production: Use secure WebSocket through Cloudflare proxy
-            wsUrl = `wss://${hostname}/ws`;
-        } else if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            // Local development
-            wsUrl = 'ws://localhost:8765';
+    console.log(`Restoring ${historyData.length} history entries for ${deviceId}`);
+
+    // Initialize device if not exists
+    if (!devices[deviceId]) {
+        const firstEntry = historyData[0];
+        devices[deviceId] = {
+            id: deviceId,
+            name: firstEntry.device_name || deviceId,
+            zone: firstEntry.zone || 'default',
+            color: firstEntry.color || '#3fb950',
+            connected: true,
+        };
+    }
+
+    // Initialize history arrays
+    if (!deviceHistory[deviceId]) {
+        deviceHistory[deviceId] = {
+            rssi: [],
+            amplitude: [],
+            breathRatio: [],
+            timestamps: []
+        };
+    }
+
+    const hist = deviceHistory[deviceId];
+
+    // Clear existing history and restore from server data
+    hist.rssi = [];
+    hist.amplitude = [];
+    hist.breathRatio = [];
+    hist.timestamps = [];
+
+    historyData.forEach(entry => {
+        const avgAmp = entry.amps && entry.amps.length > 0
+            ? entry.amps.reduce((a, b) => a + b, 0) / entry.amps.length
+            : 0;
+
+        hist.rssi.push(entry.rssi || -100);
+        hist.amplitude.push(avgAmp);
+        hist.breathRatio.push((entry.breath?.breath_ratio || 0) * 100);
+        // Convert server timestamp to milliseconds if needed
+        hist.timestamps.push(entry.timestamp ? entry.timestamp * 1000 : Date.now());
+    });
+
+    // Update device with latest data
+    const lastEntry = historyData[historyData.length - 1];
+    devices[deviceId].rssi = lastEntry.rssi;
+    devices[deviceId].breath = lastEntry.breath;
+    devices[deviceId].amps = lastEntry.amps;
+    devices[deviceId].lastUpdate = Date.now();
+    devices[deviceId].connected = true;
+
+    // Update UI
+    ensureDeviceGraphCards();
+    updateSummary();
+
+    // Force redraw graphs
+    drawSignalGraph(deviceId);
+    drawWaveform(deviceId);
+}
+
+// Update individual device data
+function updateDevice(data) {
+    const deviceId = data.device_id;
+    const now = Date.now();
+
+    if (!devices[deviceId]) {
+        devices[deviceId] = {
+            id: deviceId,
+            name: data.device_name || deviceId,
+            zone: data.zone || 'default',
+            color: data.color || '#3fb950',
+            connected: true,
+        };
+    }
+
+    devices[deviceId].rssi = data.rssi;
+    devices[deviceId].breath = data.breath;
+    devices[deviceId].amps = data.amps;
+    devices[deviceId].lastUpdate = now;
+    devices[deviceId].connected = true;
+
+    // Store history
+    if (!deviceHistory[deviceId]) {
+        deviceHistory[deviceId] = {
+            rssi: [],
+            amplitude: [],
+            breathRatio: [],
+            timestamps: []
+        };
+    }
+
+    const hist = deviceHistory[deviceId];
+    const avgAmp = data.amps ? data.amps.reduce((a, b) => a + b, 0) / data.amps.length : 0;
+
+    hist.rssi.push(data.rssi || -100);
+    hist.amplitude.push(avgAmp);
+    hist.breathRatio.push((data.breath?.breath_ratio || 0) * 100);
+    hist.timestamps.push(now);
+
+    // Trim old data
+    while (hist.timestamps.length > HISTORY_LENGTH) {
+        hist.rssi.shift();
+        hist.amplitude.shift();
+        hist.breathRatio.shift();
+        hist.timestamps.shift();
+    }
+
+    // Update zone presence
+    const zoneId = devices[deviceId].zone;
+    if (zones[zoneId]) {
+        let present = 0;
+        Object.values(devices).forEach(dev => {
+            if (dev.zone === zoneId && dev.breath?.present) {
+                present++;
+            }
+        });
+        zones[zoneId].total_present = present;
+    }
+
+    renderZones();
+    updateSummary();
+    updateFloorMap();
+    ensureDeviceGraphCards();
+}
+
+// Ensure device graph cards exist
+function ensureDeviceGraphCards() {
+    const grid = document.getElementById('deviceGraphsGrid');
+
+    Object.values(devices).forEach(dev => {
+        if (!document.getElementById(`graph-card-${dev.id}`)) {
+            createDeviceGraphCard(dev, grid);
+        }
+        updateDeviceGraphCard(dev);
+    });
+}
+
+// Create device graph card
+function createDeviceGraphCard(dev, container) {
+    const card = document.createElement('div');
+    card.id = `graph-card-${dev.id}`;
+    card.className = 'device-graph-card';
+
+    card.innerHTML = `
+        <div class="device-graph-header">
+            <div class="device-graph-title">
+                <div class="indicator" style="background: ${dev.color}"></div>
+                <span class="name">${dev.name}</span>
+            </div>
+            <div class="device-graph-stats">
+                <span>RSSI: <span class="stat-value" id="stat-rssi-${dev.id}">--</span> dBm</span>
+                <span>振幅: <span class="stat-value" id="stat-amp-${dev.id}">--</span></span>
+                <span>呼吸: <span class="stat-value" id="stat-breath-${dev.id}">--</span>%</span>
+            </div>
+        </div>
+        <div class="graph-container">
+            <canvas id="canvas-signal-${dev.id}"></canvas>
+            <div class="graph-label">信号強度 (2分間)</div>
+        </div>
+        <div class="graph-container" style="height: 80px;">
+            <canvas id="canvas-waveform-${dev.id}"></canvas>
+            <div class="graph-label">CSI波形 (リアルタイム)</div>
+        </div>
+        <div class="graph-legend">
+            <div class="graph-legend-item">
+                <div class="line" style="background: var(--accent-blue)"></div>
+                <span>RSSI (電波強度)</span>
+            </div>
+            <div class="graph-legend-item">
+                <div class="line" style="background: var(--accent-green)"></div>
+                <span>振幅 (CSI変動)</span>
+            </div>
+            <div class="graph-legend-item">
+                <div class="line" style="background: var(--accent-yellow)"></div>
+                <span>呼吸比率</span>
+            </div>
+        </div>
+    `;
+
+    container.appendChild(card);
+
+    // Setup canvases
+    const signalCanvas = document.getElementById(`canvas-signal-${dev.id}`);
+    const waveformCanvas = document.getElementById(`canvas-waveform-${dev.id}`);
+
+    deviceCanvases[dev.id] = {
+        signal: signalCanvas,
+        waveform: waveformCanvas,
+        signalCtx: signalCanvas.getContext('2d'),
+        waveformCtx: waveformCanvas.getContext('2d')
+    };
+
+    // Set canvas size
+    resizeCanvas(signalCanvas);
+    resizeCanvas(waveformCanvas);
+}
+
+// Resize canvas to match container
+function resizeCanvas(canvas) {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+}
+
+// Update device graph card stats
+function updateDeviceGraphCard(dev) {
+    const rssiEl = document.getElementById(`stat-rssi-${dev.id}`);
+    const ampEl = document.getElementById(`stat-amp-${dev.id}`);
+    const breathEl = document.getElementById(`stat-breath-${dev.id}`);
+
+    if (rssiEl) rssiEl.textContent = dev.rssi || '--';
+    if (ampEl) {
+        const avg = dev.amps ? (dev.amps.reduce((a, b) => a + b, 0) / dev.amps.length).toFixed(1) : '--';
+        ampEl.textContent = avg;
+    }
+    if (breathEl) {
+        breathEl.textContent = dev.breath?.breath_ratio ? (dev.breath.breath_ratio * 100).toFixed(0) : '--';
+    }
+}
+
+// Draw signal history graph
+function drawSignalGraph(deviceId) {
+    const canvasInfo = deviceCanvases[deviceId];
+    const hist = deviceHistory[deviceId];
+    if (!canvasInfo || !hist || hist.timestamps.length < 2) return;
+
+    const ctx = canvasInfo.signalCtx;
+    const canvas = canvasInfo.signal;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Clear
+    ctx.fillStyle = '#21262d';
+    ctx.fillRect(0, 0, w, h);
+
+    // Draw grid
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+        const y = (h / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+    }
+
+    const padding = 5;
+    const plotW = w - padding * 2;
+    const plotH = h - padding * 2;
+
+    // Normalize and draw each metric
+    const drawLine = (data, color, minVal, maxVal) => {
+        if (data.length < 2) return;
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+
+        for (let i = 0; i < data.length; i++) {
+            const x = padding + (i / (HISTORY_LENGTH - 1)) * plotW;
+            const normalized = (data[i] - minVal) / (maxVal - minVal);
+            const y = padding + plotH - normalized * plotH;
+
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+    };
+
+    // RSSI: -100 to -30 dBm
+    drawLine(hist.rssi, '#58a6ff', -100, -30);
+
+    // Amplitude: 0 to 100
+    const maxAmp = Math.max(...hist.amplitude, 100);
+    drawLine(hist.amplitude, '#3fb950', 0, maxAmp);
+
+    // Breath ratio: 0 to 100%
+    drawLine(hist.breathRatio, '#d29922', 0, 100);
+}
+
+// Draw CSI waveform
+function drawWaveform(deviceId) {
+    const canvasInfo = deviceCanvases[deviceId];
+    const dev = devices[deviceId];
+    if (!canvasInfo || !dev?.amps) return;
+
+    const ctx = canvasInfo.waveformCtx;
+    const canvas = canvasInfo.waveform;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Clear
+    ctx.fillStyle = '#21262d';
+    ctx.fillRect(0, 0, w, h);
+
+    const amps = dev.amps;
+    if (amps.length < 2) return;
+
+    // Find max for scaling
+    const maxAmp = Math.max(...amps, 1);
+
+    // Draw waveform
+    const isPresent = dev.breath?.present;
+    ctx.strokeStyle = isPresent ? '#3fb950' : '#58a6ff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+
+    const padding = 5;
+    for (let i = 0; i < amps.length; i++) {
+        const x = padding + (i / (amps.length - 1)) * (w - padding * 2);
+        const y = padding + (h - padding * 2) - (amps[i] / maxAmp) * (h - padding * 2);
+
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Draw presence indicator
+    if (isPresent) {
+        ctx.fillStyle = 'rgba(63, 185, 80, 0.3)';
+        ctx.fillRect(w - 30, 5, 25, 15);
+        ctx.fillStyle = '#3fb950';
+        ctx.font = '10px sans-serif';
+        ctx.fillText('👤', w - 25, 16);
+    }
+}
+
+// Render zone cards
+function renderZones() {
+    const grid = document.getElementById('zoneGrid');
+
+    Object.entries(zones).forEach(([zoneId, zone]) => {
+        let card = document.getElementById(`zone-${zoneId}`);
+
+        if (!card) {
+            card = document.createElement('div');
+            card.id = `zone-${zoneId}`;
+            card.className = 'zone-card';
+            grid.appendChild(card);
+        }
+
+        const present = zone.total_present || 0;
+        const capacity = zone.capacity || 10;
+        const ratio = present / capacity;
+
+        let statusClass, statusText;
+        if (present === 0) {
+            statusClass = 'empty';
+            statusText = '空き';
+        } else if (ratio < 0.5) {
+            statusClass = 'low';
+            statusText = '少ない';
+        } else if (ratio < 0.8) {
+            statusClass = 'medium';
+            statusText = 'やや混雑';
         } else {
-            // Remote access via IP or other hostname - use AWS EC2 WSS
-            wsUrl = 'wss://52.196.197.127/ws';
+            statusClass = 'high';
+            statusText = '混雑';
+        }
+
+        if (present >= (zone.alert_threshold || capacity * 0.8)) {
+            card.classList.add('alert');
+        } else {
+            card.classList.remove('alert');
+        }
+
+        let barColor;
+        if (ratio < 0.5) barColor = 'var(--accent-green)';
+        else if (ratio < 0.8) barColor = 'var(--accent-yellow)';
+        else barColor = 'var(--accent-red)';
+
+        const zoneDevices = Object.values(devices).filter(d => d.zone === zoneId);
+
+        card.innerHTML = `
+            <div class="zone-header">
+                <span class="zone-name">${zone.name}</span>
+                <span class="zone-status ${statusClass}">${statusText}</span>
+            </div>
+            <div class="capacity-bar">
+                <div class="capacity-fill" style="width: ${Math.min(ratio * 100, 100)}%; background: ${barColor}"></div>
+                <span class="capacity-text">${present} / ${capacity}</span>
+            </div>
+            <div class="device-list">
+                ${zoneDevices.map(dev => `
+                    <div class="device-item">
+                        <div class="device-indicator" style="background: ${dev.connected ? dev.color : 'var(--accent-red)'}"></div>
+                        <div class="device-info">
+                            <div class="device-name">${dev.name}</div>
+                            <div class="device-meta">RSSI: ${dev.rssi || '--'} dBm</div>
+                        </div>
+                        <div class="device-status">
+                            <div class="device-presence ${dev.breath?.present ? 'present' : 'absent'}">
+                                ${dev.breath?.present ? '👤 検出' : '-- 未検出'}
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    });
+}
+
+// Update summary
+function updateSummary() {
+    let totalPresent = 0;
+    let activeZones = 0;
+    let onlineDevices = 0;
+    let alertZones = 0;
+
+    // Count presence directly from devices
+    Object.values(devices).forEach(dev => {
+        if (dev.connected) onlineDevices++;
+        if (dev.breath?.present) totalPresent++;
+    });
+
+    // Count active zones
+    const zonePresence = {};
+    Object.values(devices).forEach(dev => {
+        const zoneId = dev.zone || 'default';
+        if (!zonePresence[zoneId]) zonePresence[zoneId] = 0;
+        if (dev.breath?.present) zonePresence[zoneId]++;
+    });
+    Object.values(zonePresence).forEach(count => {
+        if (count > 0) activeZones++;
+    });
+
+    document.getElementById('totalPresent').textContent = totalPresent;
+    document.getElementById('activeZones').textContent = activeZones;
+    document.getElementById('onlineDevices').textContent = onlineDevices;
+    document.getElementById('alertZones').textContent = alertZones;
+    document.getElementById('deviceCount').textContent = Object.keys(devices).length;
+
+    const totalEl = document.getElementById('totalPresent');
+    totalEl.className = 'summary-value';
+    if (totalPresent === 0) totalEl.classList.add('green');
+    else if (alertZones > 0) totalEl.classList.add('red');
+    else totalEl.classList.add('yellow');
+
+    const banner = document.getElementById('alertBanner');
+    if (alertZones > 0) {
+        banner.classList.add('visible');
+    } else {
+        banner.classList.remove('visible');
+    }
+}
+
+// Update floor map
+function updateFloorMap() {
+    const map = document.getElementById('floorMap');
+
+    Object.values(devices).forEach(dev => {
+        let marker = document.getElementById(`map-${dev.id}`);
+
+        if (!marker) {
+            marker = document.createElement('div');
+            marker.id = `map-${dev.id}`;
+            marker.className = 'map-device';
+            map.appendChild(marker);
+        }
+
+        const x = 50 + (dev.position?.x || 0) * 5;
+        const y = 50 + (dev.position?.y || 0) * 5;
+        marker.style.left = `${x}%`;
+        marker.style.top = `${y}%`;
+        marker.style.borderColor = dev.color;
+
+        const isPresent = dev.breath?.present;
+        marker.className = `map-device ${isPresent ? 'present' : ''}`;
+
+        marker.innerHTML = `
+            <span class="map-device-icon">${isPresent ? '👤' : '📡'}</span>
+            <span class="map-device-name">${dev.name}</span>
+        `;
+    });
+}
+
+// Animation loop for graphs
+function animateGraphs() {
+    Object.keys(deviceCanvases).forEach(deviceId => {
+        drawSignalGraph(deviceId);
+        drawWaveform(deviceId);
+    });
+    requestAnimationFrame(animateGraphs);
+}
+
+// Handle window resize
+window.addEventListener('resize', () => {
+    Object.values(deviceCanvases).forEach(info => {
+        resizeCanvas(info.signal);
+        resizeCanvas(info.waveform);
+    });
+});
+
+// Load hourly data from REST API
+async function loadHourlyData() {
+    const hours = parseInt(document.getElementById('hourlyPeriod').value);
+    try {
+        const response = await fetch(`${getApiUrl()}/api/v1/hourly?hours=${hours}`);
+        if (!response.ok) {
+            console.warn('Failed to load hourly data:', response.status);
+            return;
+        }
+        const data = await response.json();
+        displayHourlySummary(data);
+    } catch (e) {
+        console.warn('Failed to load hourly data:', e);
+    }
+}
+
+// Display hourly summary chart
+function displayHourlySummary(data) {
+    if (!data || data.length === 0) {
+        // Show empty state
+        if (hourlyChart) {
+            hourlyChart.destroy();
+            hourlyChart = null;
+        }
+        return;
+    }
+
+    // Get selected period
+    const selectedPeriod = parseInt(document.getElementById('hourlyPeriod').value);
+    const currentHour = new Date().getHours();
+
+    // Group by hour (server returns UTC, convert to local time)
+    const hourlyData = {};
+    for (const row of data) {
+        // Parse datetime - format: "2025-12-25 06:00" (UTC)
+        // Convert to local timezone
+        const utcDate = new Date(row.hour.replace(' ', 'T') + ':00Z');
+        const localHour = utcDate.getHours().toString().padStart(2, '0') + ':00';
+        if (!hourlyData[localHour]) {
+            hourlyData[localHour] = [];
+        }
+        // Use presence_pct which is already 0-100
+        hourlyData[localHour].push(row.presence_pct || 0);
+    }
+
+    // Calculate which hours to display based on selected period
+    const hours = [];
+    const avgValues = [];
+    const maxValues = [];
+
+    // For periods <= 24 hours, show only relevant hours from current time backwards
+    // For periods > 24 hours (48h, 168h), show all 24 hours in order (00:00-23:00)
+    if (selectedPeriod > 24) {
+        // Show full 24-hour range for multi-day periods
+        for (let h = 0; h < 24; h++) {
+            const hourStr = h.toString().padStart(2, '0') + ':00';
+            hours.push(hourStr);
+
+            if (hourlyData[hourStr]) {
+                const values = hourlyData[hourStr];
+                avgValues.push(values.reduce((a, b) => a + b, 0) / values.length);
+                maxValues.push(Math.max(...values));
+            } else {
+                avgValues.push(0);
+                maxValues.push(0);
+            }
+        }
+    } else {
+        // Show only relevant hours from current time backwards
+        for (let i = selectedPeriod - 1; i >= 0; i--) {
+            let h = (currentHour - i + 24) % 24;
+            const hourStr = h.toString().padStart(2, '0') + ':00';
+            hours.push(hourStr);
+
+            if (hourlyData[hourStr]) {
+                const values = hourlyData[hourStr];
+                avgValues.push(values.reduce((a, b) => a + b, 0) / values.length);
+                maxValues.push(Math.max(...values));
+            } else {
+                avgValues.push(0);
+                maxValues.push(0);
+            }
         }
     }
 
-    console.log('Connecting to WebSocket:', wsUrl);
-    const ws = new WebSocket(wsUrl);
+    // Destroy existing chart
+    if (hourlyChart) {
+        hourlyChart.destroy();
+    }
 
-    ws.onopen = () => {
-        document.getElementById('dot').classList.add('on');
-        document.getElementById('connStatus').textContent = 'Connected';
-    };
-
-    ws.onclose = () => {
-        document.getElementById('dot').classList.remove('on');
-        document.getElementById('connStatus').textContent = 'Reconnecting...';
-        setTimeout(connect, 2000);
-    };
-
-    ws.onmessage = (e) => {
-        try {
-            const d = JSON.parse(e.data);
-            if (d.amps) {
-                data = d;
-                dataVersion++;
-
-                // Update breathing display
-                if (d.breath) {
-                    updateBreathingDisplay(d.breath);
+    // Create new chart
+    const ctx = document.getElementById('hourlyChart').getContext('2d');
+    hourlyChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: hours,
+            datasets: [
+                {
+                    label: '平均',
+                    data: avgValues,
+                    backgroundColor: 'rgba(88, 166, 255, 0.6)',
+                    borderColor: '#58a6ff',
+                    borderWidth: 1
+                },
+                {
+                    label: '最大',
+                    data: maxValues,
+                    backgroundColor: 'rgba(248, 81, 73, 0.6)',
+                    borderColor: '#f85149',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: '混雑率 (%)',
+                        color: '#8b949e'
+                    },
+                    grid: { color: '#30363d' },
+                    ticks: { color: '#8b949e' }
+                },
+                x: {
+                    grid: { color: '#30363d' },
+                    ticks: { color: '#8b949e' }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: { color: '#e8e8e8' }
                 }
             }
-        } catch {}
-    };
+        }
+    });
 }
+
+// Auto-refresh hourly data every 60 seconds
+setInterval(() => {
+    if (connected) {
+        loadHourlyData();
+    }
+}, 60000);
+
+// Initialize
 connect();
-
-// Breathing display update
-function updateBreathingDisplay(breath) {
-    const panel = document.getElementById('breathPanel');
-    const status = document.getElementById('breathStatus');
-    const meter = document.getElementById('breathMeter');
-    const power = document.getElementById('breathPower');
-    const rate = document.getElementById('breathRate');
-    const timer = document.getElementById('holdTimer');
-
-    const ratio = breath.breath_ratio || 0;
-    const isBreathing = breath.breathing;
-    const holdDuration = breath.hold_duration || 0;
-    const breathRate = breath.breath_rate || 0;
-
-    // Update panel class
-    panel.className = 'breath-panel ' + (isBreathing ? 'breathing' : 'holding');
-
-    // Update status text
-    if (isBreathing) {
-        status.textContent = 'BREATHING';
-        status.className = 'breath-status breathing';
-    } else {
-        status.textContent = 'HOLDING';
-        status.className = 'breath-status holding';
-    }
-
-    // Update meter
-    meter.style.width = Math.min(ratio * 100, 100) + '%';
-
-    // Update values
-    power.textContent = (ratio * 100).toFixed(1) + '%';
-    rate.textContent = breathRate > 0 ? breathRate : '--';
-
-    // Update hold timer
-    if (!isBreathing && holdDuration > 0) {
-        timer.textContent = holdDuration.toFixed(1) + 's';
-    }
-}
-
-// Gain control
-document.getElementById('gain').oninput = (e) => {
-    gain = parseFloat(e.target.value);
-    document.getElementById('gainVal').textContent = gain.toFixed(1);
-};
-
-// Draw - throttled to 15 FPS max
-let lastDrawTime = 0;
-const DRAW_INTERVAL = 66; // 66ms = 15 FPS
-
-function draw() {
-    requestAnimationFrame(draw);
-
-    const now = performance.now();
-
-    // Throttle drawing
-    if (now - lastDrawTime < DRAW_INTERVAL) return;
-
-    if (!data || !data.amps || dataVersion === lastDrawnVersion) return;
-    lastDrawnVersion = dataVersion;
-    lastDrawTime = now;
-
-    // Count actual draws
-    frameCount++;
-    if (now - lastFpsTime >= 1000) {
-        document.getElementById('fpsVal').textContent = frameCount;
-        frameCount = 0;
-        lastFpsTime = now;
-    }
-
-    const amps = data.amps;
-    const len = amps.length;
-
-    let sum = 0, max = 0;
-    for (let i = 0; i < len; i++) {
-        sum += amps[i];
-        if (amps[i] > max) max = amps[i];
-    }
-    const avg = sum / len;
-
-    maxAmpGlobal = maxAmpGlobal * 0.95 + max * 0.05;
-    if (max > maxAmpGlobal) maxAmpGlobal = max;
-
-    history[histHead] = avg;
-    histHead = (histHead + 1) % MAX_HIST;
-    if (histCount < MAX_HIST) histCount++;
-
-    if (now - lastDomUpdate > 500) {
-        document.getElementById('pktNum').textContent = data.pkt;
-        document.getElementById('rssi').textContent = data.rssi + ' dBm';
-        document.getElementById('channel').textContent = data.ch;
-        document.getElementById('subcarriers').textContent = len;
-        document.getElementById('avgAmp').textContent = avg.toFixed(1);
-        document.getElementById('maxAmp').textContent = max.toFixed(1);
-        updateAxisLabels();
-        lastDomUpdate = now;
-    }
-
-    drawMain(amps);
-    drawHistory();
-}
-
-function drawMain(amps) {
-    const w = mainCanvas.width;
-    const h = mainCanvas.height;
-
-    mainCtx.fillStyle = '#0a0a0a';
-    mainCtx.fillRect(0, 0, w, h);
-
-    mainCtx.strokeStyle = '#222';
-    mainCtx.lineWidth = 1;
-    for (let i = 1; i < 10; i++) {
-        const x = (w / 10) * i;
-        mainCtx.beginPath();
-        mainCtx.moveTo(x, 0);
-        mainCtx.lineTo(x, h);
-        mainCtx.stroke();
-    }
-    for (let i = 1; i < 5; i++) {
-        const y = (h / 5) * i;
-        mainCtx.beginPath();
-        mainCtx.moveTo(0, y);
-        mainCtx.lineTo(w, y);
-        mainCtx.stroke();
-    }
-
-    mainCtx.strokeStyle = '#444';
-    mainCtx.beginPath();
-    mainCtx.moveTo(0, h);
-    mainCtx.lineTo(w, h);
-    mainCtx.stroke();
-
-    const scale = (h / maxAmpGlobal) * gain;
-
-    // Color based on breathing status
-    const isHolding = data.breath && !data.breath.breathing;
-    mainCtx.strokeStyle = isHolding ? '#f00' : '#0f0';
-    mainCtx.lineWidth = 1.5;
-    mainCtx.beginPath();
-
-    for (let i = 0; i < amps.length; i++) {
-        const x = (i / (amps.length - 1)) * w;
-        const y = h - amps[i] * scale;
-        if (i === 0) mainCtx.moveTo(x, y);
-        else mainCtx.lineTo(x, y);
-    }
-    mainCtx.stroke();
-}
-
-function drawHistory() {
-    const w = histCanvas.width;
-    const h = histCanvas.height;
-
-    histCtx.fillStyle = '#0a0a0a';
-    histCtx.fillRect(0, 0, w, h);
-
-    if (histCount < 2) return;
-
-    histCtx.strokeStyle = '#222';
-    histCtx.lineWidth = 1;
-    histCtx.beginPath();
-    histCtx.moveTo(0, h/2);
-    histCtx.lineTo(w, h/2);
-    histCtx.stroke();
-
-    const scale = h / maxAmpGlobal;
-
-    const isHolding = data && data.breath && !data.breath.breathing;
-    histCtx.strokeStyle = isHolding ? '#f00' : '#0f0';
-    histCtx.lineWidth = 1;
-    histCtx.beginPath();
-
-    for (let i = 0; i < histCount; i++) {
-        const idx = (histHead - histCount + i + MAX_HIST) % MAX_HIST;
-        const x = (i / (MAX_HIST - 1)) * w;
-        const y = h - history[idx] * scale;
-        if (i === 0) histCtx.moveTo(x, y);
-        else histCtx.lineTo(x, y);
-    }
-    histCtx.stroke();
-}
-
-draw();
+animateGraphs();
 </script>
 </body>
 </html>
