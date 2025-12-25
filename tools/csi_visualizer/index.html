@@ -203,7 +203,30 @@ resize();
 
 // WebSocket
 function connect() {
-    const ws = new WebSocket('ws://localhost:8765');
+    // Check for URL parameter override: ?ws=host:port
+    const urlParams = new URLSearchParams(window.location.search);
+    const wsParam = urlParams.get('ws');
+
+    let wsUrl;
+    if (wsParam) {
+        // URL parameter override (e.g., ?ws=52.196.197.127:8765)
+        wsUrl = `ws://${wsParam}`;
+    } else {
+        const hostname = window.location.hostname;
+        if (window.location.protocol === 'https:') {
+            // Production: Use secure WebSocket through Cloudflare proxy
+            wsUrl = `wss://${hostname}/ws`;
+        } else if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            // Local development
+            wsUrl = 'ws://localhost:8765';
+        } else {
+            // Remote access via IP or other hostname - use AWS EC2
+            wsUrl = 'ws://52.196.197.127:8765';
+        }
+    }
+
+    console.log('Connecting to WebSocket:', wsUrl);
+    const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
         document.getElementById('dot').classList.add('on');

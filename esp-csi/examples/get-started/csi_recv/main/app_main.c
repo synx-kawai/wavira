@@ -72,7 +72,7 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
 
     static int64_t last_time = 0;
     int64_t now = esp_timer_get_time() / 1000;
-    if (now - last_time < 200) return; // Limit to 5Hz for stability
+    if (now - last_time < 500) return; // Limit to 2Hz for high-latency stability
     last_time = now;
 
     static csi_packet_t pkt;
@@ -224,10 +224,27 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_wifi_set_csi_rx_cb(wifi_csi_rx_cb, NULL));
     wifi_csi_init(NULL);
 
-    // Initialize MQTT
+    // Initialize MQTT with high-latency tolerance settings
     esp_mqtt_client_config_t mqtt_cfg = {};
     mqtt_cfg.broker.address.uri = CONFIG_WAVIRA_MQTT_BROKER_URL;
-    
+
+    // High-latency network settings
+    mqtt_cfg.network.timeout_ms = 30000;           // 30s network timeout (default: 10s)
+    mqtt_cfg.network.reconnect_timeout_ms = 10000; // 10s before reconnect attempt
+    mqtt_cfg.session.keepalive = 120;              // 120s keep-alive interval
+    mqtt_cfg.buffer.size = 2048;                   // Larger buffer for reliability
+    mqtt_cfg.buffer.out_size = 2048;
+
+    // Last Will and Testament for proper disconnect detection
+    static char will_topic[128];
+    static char will_msg[256];
+    snprintf(will_topic, sizeof(will_topic), "wavira/device/%s/will", CONFIG_WAVIRA_DEVICE_ID);
+    snprintf(will_msg, sizeof(will_msg), "{\"device_id\":\"%s\",\"status\":\"offline\",\"reason\":\"unexpected_disconnect\"}", CONFIG_WAVIRA_DEVICE_ID);
+    mqtt_cfg.session.last_will.topic = will_topic;
+    mqtt_cfg.session.last_will.msg = will_msg;
+    mqtt_cfg.session.last_will.qos = 1;
+    mqtt_cfg.session.last_will.retain = true;
+
     s_mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(s_mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(s_mqtt_client);
