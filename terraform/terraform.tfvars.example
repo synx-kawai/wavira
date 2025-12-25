@@ -1,0 +1,25 @@
+# AWS Region
+aws_region = "ap-northeast-1"
+
+# AWS Profile (optional, comment out to use default)
+aws_profile = "default"
+
+# Environment name
+environment = "dev"
+
+# EC2 instance type
+instance_type = "t2.micro"
+
+# SSH key pair name (must exist in AWS)
+key_name = "your-key-name"
+
+# SSH access CIDR (recommended: your IP only)
+allowed_ssh_cidr = "0.0.0.0/0"
+
+# External MQTT broker (empty = use local Mosquitto)
+mqtt_broker_host = ""
+
+# Tags
+tags = {
+  Project = "wavira"
+}

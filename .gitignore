@@ -35,3 +35,10 @@ serial_log*.txt
 
 # Build artifacts
 artifacts/
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfvars
+terraform/.terraform.lock.hcl
