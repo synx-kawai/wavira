@@ -1,0 +1,3 @@
+# Office WiFi Configuration
+CONFIG_WAVIRA_WIFI_SSID="msdfreeap"
+CONFIG_WAVIRA_WIFI_PASSWORD="relfdsa23g5"
