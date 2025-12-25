@@ -97,8 +97,19 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             esp_mqtt_client_publish(s_mqtt_client, topic, "{\"status\":\"online\"}", 0, 1, 1);
             break;
         case MQTT_EVENT_DISCONNECTED:
-            ESP_LOGI(TAG, "MQTT disconnected");
+            ESP_LOGW(TAG, "MQTT disconnected - attempting reconnect...");
             s_mqtt_connected = false;
+            // Brief delay before reconnect to avoid rapid reconnect loops
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            esp_mqtt_client_reconnect(s_mqtt_client);
+            break;
+        case MQTT_EVENT_ERROR:
+            ESP_LOGE(TAG, "MQTT error event - type: %d", event->error_handle->error_type);
+            if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+                ESP_LOGE(TAG, "TCP transport error: 0x%x", event->error_handle->esp_tls_last_esp_err);
+            } else if (event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
+                ESP_LOGE(TAG, "Connection refused error: 0x%x", event->error_handle->connect_return_code);
+            }
             break;
         default:
             break;
@@ -208,6 +219,9 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    // Disable WiFi power save mode to prevent disconnections
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+
     // Wait for Wi-Fi with slow LED blinking
     ESP_LOGI(TAG, "Waiting for Wi-Fi...");
     int led_state = 0;
@@ -228,10 +242,10 @@ void app_main(void)
     esp_mqtt_client_config_t mqtt_cfg = {};
     mqtt_cfg.broker.address.uri = CONFIG_WAVIRA_MQTT_BROKER_URL;
 
-    // Optimized network settings for stable connection
-    mqtt_cfg.network.timeout_ms = 15000;           // 15s network timeout
-    mqtt_cfg.network.reconnect_timeout_ms = 5000;  // 5s before reconnect attempt
-    mqtt_cfg.session.keepalive = 30;               // 30s keep-alive (faster dead connection detection)
+    // Relaxed network settings for better stability (optimized for high latency)
+    mqtt_cfg.network.timeout_ms = 60000;           // 60s network timeout (increased for Tokyo region)
+    mqtt_cfg.network.reconnect_timeout_ms = 15000; // 15s before reconnect attempt
+    mqtt_cfg.session.keepalive = 120;              // 120s keep-alive (increased for stability)
     mqtt_cfg.buffer.size = 2048;                   // Larger buffer for reliability
     mqtt_cfg.buffer.out_size = 2048;
 
