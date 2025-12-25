@@ -1181,14 +1181,17 @@ function displayHourlySummary(data) {
     const selectedPeriod = parseInt(document.getElementById('hourlyPeriod').value);
     const currentHour = new Date().getHours();
 
-    // Group by hour
+    // Group by hour (convert UTC from server to local time)
     const hourlyData = {};
     for (const row of data) {
-        const hour = row.hour.substring(11, 13) + ':00';
-        if (!hourlyData[hour]) {
-            hourlyData[hour] = [];
+        // Parse UTC datetime and convert to local hour
+        const utcDateStr = row.hour; // Format: "2025-12-25 02:00"
+        const utcDate = new Date(utcDateStr + ' UTC');
+        const localHour = utcDate.getHours().toString().padStart(2, '0') + ':00';
+        if (!hourlyData[localHour]) {
+            hourlyData[localHour] = [];
         }
-        hourlyData[hour].push(row.avg_crowd_level * 100);
+        hourlyData[localHour].push(row.avg_crowd_level * 100);
     }
 
     // Calculate which hours to display based on selected period
