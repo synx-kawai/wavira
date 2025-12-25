@@ -228,10 +228,10 @@ void app_main(void)
     esp_mqtt_client_config_t mqtt_cfg = {};
     mqtt_cfg.broker.address.uri = CONFIG_WAVIRA_MQTT_BROKER_URL;
 
-    // High-latency network settings
-    mqtt_cfg.network.timeout_ms = 30000;           // 30s network timeout (default: 10s)
-    mqtt_cfg.network.reconnect_timeout_ms = 10000; // 10s before reconnect attempt
-    mqtt_cfg.session.keepalive = 120;              // 120s keep-alive interval
+    // Optimized network settings for stable connection
+    mqtt_cfg.network.timeout_ms = 15000;           // 15s network timeout
+    mqtt_cfg.network.reconnect_timeout_ms = 5000;  // 5s before reconnect attempt
+    mqtt_cfg.session.keepalive = 30;               // 30s keep-alive (faster dead connection detection)
     mqtt_cfg.buffer.size = 2048;                   // Larger buffer for reliability
     mqtt_cfg.buffer.out_size = 2048;
 

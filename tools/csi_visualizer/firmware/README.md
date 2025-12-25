@@ -6,9 +6,16 @@
 
 ### 仕様
 - ボーレート: 115200
-- WiFi SSID: <YOUR_WIFI_SSID>
-- WiFi Password: <YOUR_WIFI_PASSWORD>
-- 出力形式: CSI_DATA CSV形式
+- WiFi SSID: msdfreeap
+- MQTT Broker: mqtt://52.196.197.127
+- 出力形式: JSON over MQTT
+
+### MQTT設定 (v2 - 2025-12-25)
+- Keepalive: 30秒 (変更前: 120秒)
+- Network Timeout: 15秒 (変更前: 30秒)
+- Reconnect Timeout: 5秒 (変更前: 10秒)
+
+> 接続安定性向上のため、keepalive間隔を短縮しました
 
 ### 書き込み方法
 
