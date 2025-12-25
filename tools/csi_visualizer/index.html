@@ -203,13 +203,17 @@ resize();
 
 // WebSocket
 function connect() {
-    // Check for URL parameter override: ?ws=host:port
+    // Check for URL parameter override: ?ws=host:port or ?wss=host/path
     const urlParams = new URLSearchParams(window.location.search);
     const wsParam = urlParams.get('ws');
+    const wssParam = urlParams.get('wss');
 
     let wsUrl;
-    if (wsParam) {
-        // URL parameter override (e.g., ?ws=52.196.197.127:8765)
+    if (wssParam) {
+        // Secure WebSocket override (e.g., ?wss=52.196.197.127/ws)
+        wsUrl = `wss://${wssParam}`;
+    } else if (wsParam) {
+        // Plain WebSocket override (e.g., ?ws=52.196.197.127:8765)
         wsUrl = `ws://${wsParam}`;
     } else {
         const hostname = window.location.hostname;
@@ -220,8 +224,8 @@ function connect() {
             // Local development
             wsUrl = 'ws://localhost:8765';
         } else {
-            // Remote access via IP or other hostname - use AWS EC2
-            wsUrl = 'ws://52.196.197.127:8765';
+            // Remote access via IP or other hostname - use AWS EC2 WSS
+            wsUrl = 'wss://52.196.197.127/ws';
         }
     }
 
