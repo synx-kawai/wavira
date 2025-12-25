@@ -55,6 +55,40 @@ menuconfigで以下を設定してください：
 
 ### 4. ビルドとフラッシュ
 
+#### 簡単な方法（推奨）: flash.shスクリプトを使用
+
+WiFi環境とデバイスIDを指定して一発でフラッシュできます：
+
+```bash
+# 使用方法: ./flash.sh <wifi環境> <デバイスID> [ポート]
+
+# オフィスWiFiでesp32-001をフラッシュ
+./flash.sh office esp32-001
+
+# 自宅WiFiでesp32-002をフラッシュ
+./flash.sh home esp32-002
+
+# ポートを指定してフラッシュ
+./flash.sh office esp32-003 /dev/cu.usbserial-2120
+```
+
+| WiFi環境 | SSID | 設定ファイル |
+|---------|------|-------------|
+| `office` | msdfreeap | `sdkconfig.wifi.office` |
+| `home` | Buffalo-G-8570 | `sdkconfig.wifi.home` |
+
+新しいWiFi環境を追加する場合は、`sdkconfig.wifi.<環境名>` ファイルを作成してください：
+
+```bash
+# 例: sdkconfig.wifi.cafe
+cat > sdkconfig.wifi.cafe << 'EOF'
+CONFIG_WAVIRA_WIFI_SSID="CafeWiFi"
+CONFIG_WAVIRA_WIFI_PASSWORD="cafepass123"
+EOF
+```
+
+#### 手動でビルドとフラッシュ
+
 ```bash
 # ビルド
 idf.py build
@@ -173,7 +207,10 @@ csi_recv/
 │   ├── CMakeLists.txt      # ビルド設定
 │   ├── Kconfig.projbuild   # menuconfig定義
 │   └── idf_component.yml   # 依存コンポーネント
+├── flash.sh                # WiFi環境切替フラッシュスクリプト
 ├── sdkconfig.defaults      # デフォルト設定
+├── sdkconfig.wifi.home     # 自宅WiFi設定
+├── sdkconfig.wifi.office   # オフィスWiFi設定
 └── README.md               # このファイル
 ```
 
