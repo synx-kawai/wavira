@@ -72,47 +72,8 @@ def hr(hours:int=24):
  with L:c=gc();s=time.time()-hours*3600;r=c.execute("SELECT strftime('%Y-%m-%d %H:00',datetime(ts,'unixepoch'))as hr,did,AVG(amp),AVG(var),SUM(pres)*100.0/COUNT(*),COUNT(*)FROM h WHERE ts>? GROUP BY hr,did ORDER BY hr DESC",(s,)).fetchall();c.close();return[{"hour":x[0],"device_id":x[1],"avg_amplitude":round(x[2],2)if x[2]else 0,"presence_pct":round(x[4],1)if x[4]else 0}for x in r]
 if __name__=="__main__":uvicorn.run(app,host="0.0.0.0",port=8080)
 A
-# Download dashboard from GitHub (with fallback to minimal version)
-DASHBOARD_URL="https://raw.githubusercontent.com/synx-kawai/wavira/main/tools/csi_visualizer/index.html"
-curl -sfL "$DASHBOARD_URL" -o /opt/wavira/dashboard/index.html || cat>/opt/wavira/dashboard/index.html<<'H'
-<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>Wavira CSI Monitor</title>
-<script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<style>body{background:#0d1117;color:#f0f6fc;font-family:sans-serif;padding:20px;margin:0}
-.header{display:flex;justify-content:space-between;align-items:center;padding:16px;background:#161b22;border:1px solid #30363d;border-radius:8px;margin-bottom:16px}
-.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px}
-.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;text-align:center}
-.value{font-size:48px;font-weight:700;color:#3fb950}.label{color:#8b949e;font-size:14px}
-.devices{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
-.device{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px}
-.status{display:inline-block;padding:4px 8px;border-radius:4px;font-size:12px}
-.online{background:rgba(63,185,80,0.2);color:#3fb950}.offline{background:rgba(248,81,73,0.2);color:#f85149}
-#log{background:#161b22;padding:10px;height:200px;overflow-y:auto;font-family:monospace;font-size:12px;border-radius:8px;margin-top:16px}</style>
-</head><body>
-<div class="header"><h1>🏢 Wavira CSI Monitor</h1><div><span id="status">接続中...</span></div></div>
-<div class="summary">
-<div class="card"><div class="value" id="present">0</div><div class="label">検出人数</div></div>
-<div class="card"><div class="value" id="online">0</div><div class="label">オンライン</div></div>
-<div class="card"><div class="value" id="total">0</div><div class="label">デバイス数</div></div>
-<div class="card"><div class="value" id="avgRssi">--</div><div class="label">平均RSSI</div></div>
-</div>
-<div class="devices" id="devices"></div>
-<div id="log"></div>
-<script>
-const devices={},log=m=>document.getElementById('log').innerHTML=new Date().toLocaleTimeString()+' '+m+'<br>'+document.getElementById('log').innerHTML;
-function getMqttUrl(){const h=location.hostname;if(h==='localhost'||h==='127.0.0.1')return'ws://localhost:9001';return location.protocol==='https:'?'wss://'+h+'/mqtt':'ws://'+h+':9001';}
-function updateUI(){let p=0,o=0,rssiSum=0,rssiCnt=0;Object.values(devices).forEach(d=>{if(d.online)o++;if(d.present)p++;if(d.rssi){rssiSum+=d.rssi;rssiCnt++;}});
-document.getElementById('present').textContent=p;document.getElementById('online').textContent=o;document.getElementById('total').textContent=Object.keys(devices).length;
-document.getElementById('avgRssi').textContent=rssiCnt?Math.round(rssiSum/rssiCnt):'--';
-let html='';Object.values(devices).forEach(d=>{html+=`<div class="device"><div style="display:flex;justify-content:space-between;align-items:center"><strong>${d.id}</strong><span class="status ${d.online?'online':'offline'}">${d.online?'オンライン':'オフライン'}</span></div><div style="margin-top:8px;color:#8b949e">RSSI: ${d.rssi||'--'} dBm | 振幅: ${d.amp?.toFixed(1)||'--'} | ${d.present?'👤検出':'未検出'}</div></div>`;});
-document.getElementById('devices').innerHTML=html;}
-const c=mqtt.connect(getMqttUrl(),{reconnectPeriod:2000});
-c.on('connect',()=>{document.getElementById('status').textContent='接続済み';c.subscribe('wavira/analysis/#');log('MQTT Connected');fetch(location.protocol+'//'+location.hostname+(location.port?':'+location.port:'')+'/api/v1/devices').then(r=>r.json()).then(d=>d.forEach(x=>{devices[x.device_id]={id:x.device_id,online:x.online,rssi:x.rssi};updateUI();})).catch(e=>log('API error: '+e));});
-c.on('message',(t,m)=>{try{const d=JSON.parse(m);devices[d.device_id]={id:d.device_id,online:true,rssi:d.rssi,amp:d.avg_amplitude,present:d.present,lastSeen:Date.now()};updateUI();log(d.device_id+' RSSI:'+d.rssi+' P:'+d.present);}catch(e){}});
-c.on('close',()=>document.getElementById('status').textContent='再接続中...');
-setInterval(()=>{const now=Date.now();Object.values(devices).forEach(d=>{if(d.lastSeen&&now-d.lastSeen>30000)d.online=false;});updateUI();},5000);
-</script></body></html>
-H
+# Download dashboard from S3
+aws s3 cp s3://${s3_bucket}/dashboard/index.html /opt/wavira/dashboard/index.html --region ${aws_region}
 cat>/etc/systemd/system/wavira-proc.service<<E
 [Unit]
 After=network.target docker.service
@@ -164,3 +125,9 @@ N
 chown -R ec2-user:ec2-user /opt/wavira
 systemctl daemon-reload && systemctl enable nginx wavira-proc wavira-api && systemctl start nginx
 sleep 5 && systemctl start wavira-proc wavira-api
+
+# Install and configure Cloudflare Tunnel
+curl -L --output cloudflared.rpm https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-x86_64.rpm
+yum localinstall -y cloudflared.rpm
+sudo cloudflared service install eyJhIjoiZDM4MDUyMTJkODU1OTM1NzgwMTMzZWFjMjRkNWMwNzUiLCJ0IjoiNTYxMDgyY2QtNzllYi00NGRiLWI5MjgtZDI3OTg4NGQzYTM1IiwicyI6Ik9HUmhaV0U1TWprdE9USXdPUzAwWVRKbUxUZzBNRGt0WTJaaU1qVTJPRFUxTkRndyJ9
+

@@ -22,6 +22,7 @@ module "wavira_server" {
   key_name         = var.key_name
   allowed_ssh_cidr = var.allowed_ssh_cidr
   mqtt_broker_host = var.mqtt_broker_host
+  vpc_id           = var.vpc_id
 
   tags = var.tags
 }

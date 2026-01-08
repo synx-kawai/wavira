@@ -26,8 +26,20 @@ variable "mqtt_broker_host" {
   default     = ""
 }
 
+variable "vpc_id" {
+  description = "VPC ID (empty for default VPC)"
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "Tags to apply to resources"
   type        = map(string)
   default     = {}
+}
+
+variable "dashboard_path" {
+  description = "Path to dashboard HTML file"
+  type        = string
+  default     = ""
 }

@@ -40,6 +40,12 @@ variable "mqtt_broker_host" {
   default     = ""
 }
 
+variable "vpc_id" {
+  description = "VPC ID (empty for default VPC)"
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "Tags to apply to all resources"
   type        = map(string)
