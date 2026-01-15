@@ -37,6 +37,10 @@
     #define BLINK_GPIO CONFIG_BLINK_GPIO
 #endif
 
+// LED Activity indicator (network switch style)
+static volatile bool s_led_rx_activity = false;
+static volatile int s_led_activity_counter = 0;
+
 #if CONFIG_IDF_TARGET_ESP32C5
     #define CSI_FORCE_LLTF                      1   
 #endif
@@ -175,6 +179,9 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
 #endif
     ets_printf("]\"\n");
     s_count++;
+
+    // Signal LED activity on CSI receive (RX indicator)
+    s_led_rx_activity = true;
 }
 
 static void wifi_csi_init()
@@ -253,15 +260,37 @@ static esp_err_t wifi_ping_router_start(ip_event_got_ip_t* event)
     return ESP_OK;
 }
 
+// Network switch style LED task
+// - Startup: slow blink (waiting for WiFi/CSI)
+// - Active: brief flash on each CSI packet (like network activity LED)
 void led_blink_task(void *pvParameter)
 {
     gpio_reset_pin(BLINK_GPIO);
     gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
-    while (1) {
-        gpio_set_level(BLINK_GPIO, 0);
-        vTaskDelay(500 / portTICK_PERIOD_MS);
+
+    // Initial startup blink (3 times to indicate boot)
+    for (int i = 0; i < 3; i++) {
         gpio_set_level(BLINK_GPIO, 1);
-        vTaskDelay(500 / portTICK_PERIOD_MS);
+        vTaskDelay(150 / portTICK_PERIOD_MS);
+        gpio_set_level(BLINK_GPIO, 0);
+        vTaskDelay(150 / portTICK_PERIOD_MS);
+    }
+
+    // Main LED loop - network switch style activity indicator
+    while (1) {
+        if (s_led_rx_activity) {
+            // Brief flash on RX activity (like network switch LED)
+            gpio_set_level(BLINK_GPIO, 1);
+            s_led_rx_activity = false;
+            s_led_activity_counter = 2;  // Keep LED on for ~40ms
+        } else if (s_led_activity_counter > 0) {
+            // Maintain LED during activity pulse
+            s_led_activity_counter--;
+            if (s_led_activity_counter == 0) {
+                gpio_set_level(BLINK_GPIO, 0);
+            }
+        }
+        vTaskDelay(20 / portTICK_PERIOD_MS);  // 50Hz check rate for responsive LED
     }
 }
 
