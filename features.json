@@ -79,7 +79,8 @@
       "issue": 41,
       "title": "開発者向けドキュメント整備",
       "priority": "medium",
-      "status": "failing",
+      "status": "passing",
+      "completed_at": "2026-01-15",
       "tasks": [
         "CONTRIBUTING.md作成",
         "DEVELOPMENT.md作成",

@@ -57,6 +57,13 @@
   - Created pyproject.toml with tool configurations
   - Created .flake8 and .pylintrc configuration files
   - Updated ci.yml with coverage reporting
+- Completed #41: Developer documentation
+  - Created CONTRIBUTING.md (contribution guidelines)
+  - Created docs/DEVELOPMENT.md (local setup guide)
+  - Created docs/ARCHITECTURE.md (system design)
+  - Created docs/API.md (REST API reference)
+  - Created docs/MQTT_PROTOCOL.md (message formats)
+  - Created docs/TROUBLESHOOTING.md (common issues)
 
 ## Feature Status Overview
 | ID | Issue | Title | Priority | Status |
@@ -66,7 +73,7 @@
 | security-hardening | #40 | セキュリティ強化 | high | passing |
 | readme-completion | #37 | README.md完成 | medium | passing |
 | cicd-enhancement | #39 | CI/CD強化 | medium | passing |
-| developer-docs | #41 | 開発者ドキュメント | medium | pending |
+| developer-docs | #41 | 開発者ドキュメント | medium | passing |
 | data-validation | #42 | データ検証 | medium | pending |
 | performance-optimization | #43 | モデル最適化 | medium | pending |
 | firmware-ota | #44 | ファームウェアOTA | low | pending |
