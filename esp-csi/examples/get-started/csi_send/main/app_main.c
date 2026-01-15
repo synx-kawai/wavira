@@ -23,6 +23,16 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_now.h"
+#include "driver/gpio.h"
+
+// LED Configuration for TX activity indicator
+// ESP32: GPIO2 (built-in blue LED)
+// ESP32-S3 XIAO: GPIO21 (built-in yellow LED)
+#if CONFIG_IDF_TARGET_ESP32S3
+#define LED_GPIO 21
+#else
+#define LED_GPIO 2
+#endif
 
 #define CONFIG_LESS_INTERFERENCE_CHANNEL   11
 
@@ -123,6 +133,23 @@ static void wifi_esp_now_init(esp_now_peer_info_t peer)
 #endif
 }
 
+// Initialize LED for TX activity indicator
+static void led_init(void)
+{
+    gpio_reset_pin(LED_GPIO);
+    gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_GPIO, 0);
+    ESP_LOGI(TAG, "TX LED initialized on GPIO%d", LED_GPIO);
+
+    // Startup indication: 3 quick blinks
+    for (int i = 0; i < 3; i++) {
+        gpio_set_level(LED_GPIO, 1);
+        usleep(150 * 1000);
+        gpio_set_level(LED_GPIO, 0);
+        usleep(150 * 1000);
+    }
+}
+
 void app_main()
 {
     /**
@@ -134,6 +161,11 @@ void app_main()
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    /**
+     * @brief Initialize LED
+     */
+    led_init();
 
     /**
      * @brief Initialize Wi-Fi
@@ -156,10 +188,22 @@ void app_main()
     ESP_LOGI(TAG, "wifi_channel: %d, send_frequency: %d, mac: " MACSTR,
              CONFIG_LESS_INTERFERENCE_CHANNEL, CONFIG_SEND_FREQUENCY, MAC2STR(CONFIG_CSI_SEND_MAC));
 
+    // TX activity LED: flash every N packets (network switch style)
+    int led_counter = 0;
+    const int led_flash_interval = 50;  // Flash every 50 packets (~2Hz visible blink at 100Hz send rate)
+
     for (uint32_t count = 0; ; ++count) {
         esp_err_t ret = esp_now_send(peer.peer_addr, (const uint8_t *)&count, sizeof(count));
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "free_heap: %ld <%s> ESP-NOW send error", esp_get_free_heap_size(), esp_err_to_name(ret));
+        }
+
+        // Network switch style TX LED activity
+        if (++led_counter >= led_flash_interval) {
+            gpio_set_level(LED_GPIO, 1);
+            usleep(50000);  // 50ms ON pulse (visible flash)
+            gpio_set_level(LED_GPIO, 0);
+            led_counter = 0;
         }
 
         usleep(1000 * 1000 / CONFIG_SEND_FREQUENCY);

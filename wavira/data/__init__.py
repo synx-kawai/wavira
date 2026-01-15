@@ -8,6 +8,20 @@ from wavira.data.preprocessing import (
 )
 from wavira.data.dataset import CSIDataset
 from wavira.data.crowd_dataset import CrowdDataset, SyntheticCrowdDataset
+from wavira.data.gesture_dataset import (
+    GestureDataset,
+    DualDeviceGestureDataset,
+    SyntheticGestureDataset,
+    create_gesture_dataloaders,
+)
+from wavira.data.gesture_preprocessing import (
+    butterworth_lowpass_filter,
+    butterworth_bandpass_filter,
+    preprocess_gesture_csi,
+    GesturePreprocessor,
+    GesturePreprocessConfig,
+    GestureAugmentor,
+)
 
 __all__ = [
     "hampel_filter",
@@ -17,4 +31,15 @@ __all__ = [
     "CSIDataset",
     "CrowdDataset",
     "SyntheticCrowdDataset",
+    # Gesture recognition
+    "GestureDataset",
+    "DualDeviceGestureDataset",
+    "SyntheticGestureDataset",
+    "create_gesture_dataloaders",
+    "butterworth_lowpass_filter",
+    "butterworth_bandpass_filter",
+    "preprocess_gesture_csi",
+    "GesturePreprocessor",
+    "GesturePreprocessConfig",
+    "GestureAugmentor",
 ]
