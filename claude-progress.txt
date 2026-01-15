@@ -23,11 +23,24 @@
   - Updated setup.sh for MQTT configuration
   - Marked Terraform config as deprecated
   - Updated config.yaml with MQTT settings
-- Started #38: Test coverage expansion
+- Completed #38: Test coverage expansion (partial)
   - Created test_crowd_estimator.py (24 new tests)
   - CrowdEstimator coverage: 32% -> 97%
   - Total tests: 83 -> 106
   - Overall coverage: 45% -> 48%
+- Completed #40: Security hardening
+  - Created security.py module with:
+    - API key authentication
+    - Rate limiting (token bucket)
+    - Input validation
+    - Security headers middleware
+    - CORS configuration
+  - Added test_security.py (26 new tests)
+  - Created mosquitto.prod.conf (production config)
+  - Created acl.conf (MQTT ACL)
+  - Created docs/SECURITY.md
+  - Updated history_collector.py with security features
+  - Total tests: 106 -> 132
 
 ## Feature Status Overview
 | ID | Issue | Title | Priority | Status |

@@ -36,7 +36,8 @@
       "issue": 40,
       "title": "セキュリティ強化",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
+      "completed_at": "2026-01-15",
       "tasks": [
         "APIエンドポイントの入力サニタイズ",
         "CORSの適切な設定",

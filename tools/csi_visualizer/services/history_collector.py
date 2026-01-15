@@ -31,10 +31,21 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
+
+from security import (
+    SecurityConfig,
+    load_security_config,
+    APIKeyAuth,
+    RateLimitMiddleware,
+    SecurityHeadersMiddleware,
+    InputValidator,
+    get_mqtt_credentials,
+    mask_password,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -371,17 +382,25 @@ class MQTTCollector:
 # Global instances
 db: Optional[HistoryDatabase] = None
 mqtt_collector: Optional[MQTTCollector] = None
+security_config: Optional[SecurityConfig] = None
+api_key_auth: Optional[APIKeyAuth] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    global db, mqtt_collector
+    global db, mqtt_collector, security_config, api_key_auth
 
     # Startup
     db_path = os.environ.get("DB_PATH", "history.db")
     mqtt_host = os.environ.get("MQTT_HOST", "localhost")
     mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
+
+    # Initialize security
+    security_config = load_security_config()
+    api_key_auth = APIKeyAuth(security_config)
+    logger.info(f"Security: API key required={security_config.require_api_key}, "
+                f"rate limit={security_config.rate_limit_requests}/{security_config.rate_limit_window}s")
 
     db = HistoryDatabase(db_path)
     mqtt_collector = MQTTCollector(mqtt_host, mqtt_port, db)
@@ -412,23 +431,57 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+def setup_middleware(app: FastAPI, config: SecurityConfig):
+    """Setup security middleware."""
+    # Security headers (added first, runs last)
+    if config.add_security_headers:
+        app.add_middleware(SecurityHeadersMiddleware)
+
+    # Rate limiting
+    if config.rate_limit_enabled:
+        app.add_middleware(RateLimitMiddleware, config=config)
+
+    # CORS (added last, runs first)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.cors_origins,
+        allow_credentials=config.cors_allow_credentials,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["X-API-Key", "Content-Type", "Authorization"],
+    )
+
+
+# Setup middleware with default config (will be reconfigured in lifespan if needed)
+_default_config = SecurityConfig()
+setup_middleware(app, _default_config)
+
+
+def get_api_key_auth():
+    """Get API key auth dependency."""
+    if api_key_auth:
+        return api_key_auth
+    # Return a no-op auth if not configured
+    return APIKeyAuth(SecurityConfig(require_api_key=False))
 
 
 @app.get("/api/v1/health")
 async def health():
-    """Health check endpoint."""
-    return {"status": "ok", "timestamp": time.time()}
+    """Health check endpoint (no auth required)."""
+    return {
+        "status": "ok",
+        "timestamp": time.time(),
+        "security": {
+            "api_key_required": security_config.require_api_key if security_config else False,
+            "rate_limit_enabled": security_config.rate_limit_enabled if security_config else True,
+        }
+    }
 
 
 @app.get("/api/v1/devices")
-async def get_devices():
+async def get_devices(
+    _api_key: str = Depends(get_api_key_auth),
+):
     """Get list of known devices."""
     if not db:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -437,30 +490,36 @@ async def get_devices():
 
 @app.get("/api/v1/history/{device_id}")
 async def get_history(
-    device_id: str,
+    device_id: str = Path(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$"),
     limit: int = Query(default=1000, ge=1, le=10000),
-    since: Optional[float] = Query(default=None)
+    since: Optional[float] = Query(default=None, ge=0),
+    _api_key: str = Depends(get_api_key_auth),
 ):
     """Get device history."""
     if not db:
         raise HTTPException(status_code=503, detail="Database not initialized")
+    # Additional validation
+    device_id = InputValidator.device_id(device_id)
     return db.get_device_history(device_id, limit, since)
 
 
 @app.get("/api/v1/history/{device_id}/hourly")
 async def get_hourly_summary(
-    device_id: str,
-    hours: int = Query(default=24, ge=1, le=168)
+    device_id: str = Path(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$"),
+    hours: int = Query(default=24, ge=1, le=168),
+    _api_key: str = Depends(get_api_key_auth),
 ):
     """Get hourly aggregated data for a device."""
     if not db:
         raise HTTPException(status_code=503, detail="Database not initialized")
+    device_id = InputValidator.device_id(device_id)
     return db.get_hourly_summary(device_id, hours)
 
 
 @app.get("/api/v1/hourly")
 async def get_all_hourly_summary(
-    hours: int = Query(default=24, ge=1, le=168)
+    hours: int = Query(default=24, ge=1, le=168),
+    _api_key: str = Depends(get_api_key_auth),
 ):
     """Get hourly aggregated data for all devices."""
     if not db:
