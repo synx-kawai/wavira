@@ -4,9 +4,11 @@
 
 ## Current Status
 - #47 completed - cleanup of deleted components
-- #38 in progress - test coverage expansion
-- Test count: 106 tests passing
-- Coverage: 48% (up from 45%)
+- #38 completed - test coverage expansion
+- #40 completed - security hardening
+- #37 completed - README.md Coming Soon sections
+- Test count: 132 tests passing
+- Coverage: 48%
 
 ## Session History
 
@@ -42,20 +44,27 @@
   - Updated history_collector.py with security features
   - Total tests: 106 -> 132
 
+### Session 3 (2026-01-15)
+- Completed #37: README.md Coming Soon sections
+  - Added Training section with train_crowd.py documentation
+  - Added Real-time Inference section with monitor_crowd.py documentation
+  - Added Gesture Recognition section with train_gesture.py documentation
+  - Removed all "Coming Soon" placeholders
+
 ## Feature Status Overview
 | ID | Issue | Title | Priority | Status |
 |----|-------|-------|----------|--------|
-| cleanup-deleted-components | #47 | 削除されたコンポーネントの整理 | high | failing |
-| test-coverage | #38 | テストカバレッジ拡充 | high | failing |
-| security-hardening | #40 | セキュリティ強化 | high | failing |
-| readme-completion | #37 | README.md完成 | medium | failing |
-| cicd-enhancement | #39 | CI/CD強化 | medium | failing |
-| developer-docs | #41 | 開発者ドキュメント | medium | failing |
-| data-validation | #42 | データ検証 | medium | failing |
-| performance-optimization | #43 | モデル最適化 | medium | failing |
-| firmware-ota | #44 | ファームウェアOTA | low | failing |
-| kubernetes-deploy | #45 | Kubernetesデプロイ | low | failing |
-| breathing-detection | #46 | 呼吸/存在検知 | low | failing |
+| cleanup-deleted-components | #47 | 削除されたコンポーネントの整理 | high | passing |
+| test-coverage | #38 | テストカバレッジ拡充 | high | passing |
+| security-hardening | #40 | セキュリティ強化 | high | passing |
+| readme-completion | #37 | README.md完成 | medium | passing |
+| cicd-enhancement | #39 | CI/CD強化 | medium | pending |
+| developer-docs | #41 | 開発者ドキュメント | medium | pending |
+| data-validation | #42 | データ検証 | medium | pending |
+| performance-optimization | #43 | モデル最適化 | medium | pending |
+| firmware-ota | #44 | ファームウェアOTA | low | pending |
+| kubernetes-deploy | #45 | Kubernetesデプロイ | low | pending |
+| breathing-detection | #46 | 呼吸/存在検知 | low | pending |
 
 ## Notes for Next Session
 - Run `./init.sh` to verify environment

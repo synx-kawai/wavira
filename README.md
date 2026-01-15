@@ -364,19 +364,72 @@ Each `.json` file contains:
 }
 ```
 
-### Training (Coming Soon)
+### Training
 
 ```bash
-# Train crowd level classifier
-python scripts/train_crowd.py --data_dir data/crowd --epochs 100
+# Train with synthetic data (for testing/development)
+python scripts/train_crowd.py --synthetic --epochs 50
+
+# Train classification model with real data
+python scripts/train_crowd.py --data_dir data/crowd_csi/ --mode classification --epochs 100
+
+# Train regression model for continuous estimation
+python scripts/train_crowd.py --data_dir data/crowd_csi/ --mode regression --epochs 100
 ```
 
-### Real-time Inference (Coming Soon)
+Training options:
+- `--synthetic`: Use synthetic data for testing
+- `--mode`: `classification` (4 levels) or `regression` (continuous)
+- `--encoder_type`: `transformer` or `lstm`
+- `--epochs`: Number of training epochs (default: 100)
+- `--batch_size`: Batch size (default: 32)
+- `--lr`: Learning rate (default: 0.001)
+
+### Real-time Inference
 
 ```bash
-# Start real-time crowd monitoring
-python scripts/monitor_crowd.py --model checkpoints/crowd_model.pt
+# Start real-time crowd monitoring with ESP32
+python scripts/monitor_crowd.py --model checkpoints/crowd/final_model.pt
+
+# Monitor with custom settings
+python scripts/monitor_crowd.py \
+    --model checkpoints/crowd/final_model.pt \
+    --port /dev/cu.usbserial-0001 \
+    --window 100 \
+    --interval 1.0
+
+# Simulate without ESP32 hardware
+python scripts/monitor_crowd.py --model checkpoints/crowd/final_model.pt --sim
 ```
+
+Crowd levels:
+- Level 0: Empty (0 people)
+- Level 1: Low (1-2 people)
+- Level 2: Medium (3-5 people)
+- Level 3: High (6+ people)
+
+### Gesture Recognition
+
+```bash
+# Train gesture recognition with synthetic data
+python scripts/train_gesture.py --use_synthetic --epochs 25
+
+# Train with real gesture data
+python scripts/train_gesture.py --data_dir data/gestures --epochs 50
+
+# Train dual ESP32 model
+python scripts/train_gesture.py --data_dir data/dual_gesture --model_type dual
+
+# Run gesture inference
+python scripts/gesture_inference.py --model checkpoints/gesture/model.pt
+```
+
+Supported gestures (default):
+- wave_left, wave_right
+- push, pull
+- swipe_up, swipe_down
+- circle_cw, circle_ccw
+- no_gesture
 
 ## NTU-Fi Dataset
 

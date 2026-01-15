@@ -51,7 +51,8 @@
       "issue": 37,
       "title": "README.md Coming Soonセクション完成",
       "priority": "medium",
-      "status": "failing",
+      "status": "passing",
+      "completed_at": "2026-01-15",
       "tasks": [
         "Crowd Level Estimation Trainingセクションの完成",
         "Real-time Inferenceセクションの完成",
