@@ -3,10 +3,7 @@
 # Updated: 2026-01-15
 
 ## Current Status
-- #47 completed - cleanup of deleted components
-- #38 completed - test coverage expansion
-- #40 completed - security hardening
-- #37 completed - README.md Coming Soon sections
+- 6 features completed, 12 features pending
 - Test count: 132 tests passing
 - Coverage: 48%
 
@@ -65,23 +62,79 @@
   - Created docs/MQTT_PROTOCOL.md (message formats)
   - Created docs/TROUBLESHOOTING.md (common issues)
 
+### Session 4 (2026-01-15)
+- Updated long-running agent harness with remaining GitHub Issues
+- Added 7 MQTT-related features from the migration roadmap:
+  - #23: デバイス認証のMQTT対応 (Phase 2)
+  - #24: デバイスオンライン/オフライン検知 (Phase 2)
+  - #25: ESP32 MQTTクライアント実装 (Phase 3)
+  - #26: HTTP/MQTTデュアルモード対応 (Phase 3)
+  - #27: MQTT統合テスト (Phase 4)
+  - #28: 既存デバイスのMQTT移行 (Phase 5)
+  - #29: HTTP CSIエンドポイント廃止 (Phase 5)
+- Added #8: プロダクション環境へのデプロイ
+- Updated features.json with phase information and dependencies
+
 ## Feature Status Overview
+
+### Completed (6)
+| ID | Issue | Title | Priority | Phase |
+|----|-------|-------|----------|-------|
+| cleanup-deleted-components | #47 | 削除されたコンポーネントの整理 | high | - |
+| test-coverage | #38 | テストカバレッジ拡充 | high | - |
+| security-hardening | #40 | セキュリティ強化 | high | - |
+| readme-completion | #37 | README.md完成 | medium | - |
+| cicd-enhancement | #39 | CI/CD強化 | medium | - |
+| developer-docs | #41 | 開発者ドキュメント | medium | - |
+
+### Pending by Phase
+
+#### Phase 2 - サーバーサイド実装
 | ID | Issue | Title | Priority | Status |
 |----|-------|-------|----------|--------|
-| cleanup-deleted-components | #47 | 削除されたコンポーネントの整理 | high | passing |
-| test-coverage | #38 | テストカバレッジ拡充 | high | passing |
-| security-hardening | #40 | セキュリティ強化 | high | passing |
-| readme-completion | #37 | README.md完成 | medium | passing |
-| cicd-enhancement | #39 | CI/CD強化 | medium | passing |
-| developer-docs | #41 | 開発者ドキュメント | medium | passing |
-| data-validation | #42 | データ検証 | medium | pending |
-| performance-optimization | #43 | モデル最適化 | medium | pending |
-| firmware-ota | #44 | ファームウェアOTA | low | pending |
-| kubernetes-deploy | #45 | Kubernetesデプロイ | low | pending |
-| breathing-detection | #46 | 呼吸/存在検知 | low | pending |
+| device-auth-mqtt | #23 | デバイス認証のMQTT対応 | high | failing |
+| device-online-offline | #24 | オンライン/オフライン検知 | medium | failing |
+
+#### Phase 3 - ファームウェア実装
+| ID | Issue | Title | Priority | Status |
+|----|-------|-------|----------|--------|
+| esp32-mqtt-client | #25 | ESP32 MQTTクライアント | high | failing |
+| dual-mode-firmware | #26 | デュアルモード対応 | medium | failing |
+
+#### Phase 4 - テスト・検証
+| ID | Issue | Title | Priority | Status |
+|----|-------|-------|----------|--------|
+| mqtt-integration-test | #27 | MQTT統合テスト | high | failing |
+
+#### Phase 5 - 移行・廃止
+| ID | Issue | Title | Priority | Status |
+|----|-------|-------|----------|--------|
+| device-mqtt-migration | #28 | 既存デバイスのMQTT移行 | medium | failing |
+| http-deprecation | #29 | HTTP廃止 | low | failing |
+
+#### Candidate (優先度検討中)
+| ID | Issue | Title | Priority | Status |
+|----|-------|-------|----------|--------|
+| data-validation | #42 | データ検証フレームワーク | medium | failing |
+| performance-optimization | #43 | モデル最適化 | medium | failing |
+
+#### Future (将来)
+| ID | Issue | Title | Priority | Status |
+|----|-------|-------|----------|--------|
+| firmware-ota | #44 | OTAアップデート | low | failing |
+| kubernetes-deploy | #45 | Kubernetesデプロイ | low | failing |
+| breathing-detection | #46 | 呼吸/存在検知 | low | failing (partial) |
+| production-deploy | #8 | プロダクションデプロイ | low | failing |
+
+## Recommended Next Steps
+1. **最優先**: Phase 2 の #23 (デバイス認証のMQTT対応) を実装
+2. #24 (オンライン/オフライン検知) は #23 に依存
+3. Phase 3 の #25 (ESP32 MQTT) は実機テストが必要
+4. 並行して #42 (データ検証) や #43 (最適化) を進められる
 
 ## Notes for Next Session
 - Run `./init.sh` to verify environment
 - Check `features.json` for current feature status
 - Read this file for context on previous work
 - Commit progress with descriptive messages
+- Phase 2 features should be prioritized

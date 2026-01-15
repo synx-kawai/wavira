@@ -2,6 +2,7 @@
   "project": "wavira",
   "description": "Wi-Fi CSI based gesture recognition and person re-identification system",
   "created_at": "2026-01-15",
+  "updated_at": "2026-01-15",
   "features": [
     {
       "id": "cleanup-deleted-components",
@@ -22,7 +23,8 @@
       "issue": 38,
       "title": "テストカバレッジ拡充",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
+      "completed_at": "2026-01-15",
       "tasks": [
         "CrowdEstimatorモデルのユニットテスト追加",
         "Training pipelineの統合テスト追加",
@@ -95,10 +97,14 @@
       "title": "データ検証フレームワーク",
       "priority": "medium",
       "status": "failing",
+      "phase": "candidate",
       "tasks": [
         "CSI入力データのバリデーションフレームワーク作成",
         "収集データの異常検知",
-        "データ品質メトリクス",
+        "データ品質メトリクスとレポート",
+        "データセット内の重複検出",
+        "欠損データの処理戦略",
+        "CSIデータフォーマットの検証",
         "wavira/data/validation.py作成"
       ]
     },
@@ -108,11 +114,16 @@
       "title": "モデル最適化とベンチマーク",
       "priority": "medium",
       "status": "failing",
+      "phase": "candidate",
       "tasks": [
-        "推論レイテンシのベンチマーク",
+        "ESP32上での推論レイテンシのベンチマーク",
         "モデルスループットのプロファイリング",
-        "INT8量子化サポート",
-        "バッチ推論最適化"
+        "エッジデプロイ向けモデルサイズ最適化",
+        "INT8量子化サポートの追加",
+        "メモリ使用量の分析",
+        "バッチ推論の最適化",
+        "勾配累積による大バッチサイズ対応",
+        "学習率ウォームアップスケジューリング"
       ]
     },
     {
@@ -121,10 +132,13 @@
       "title": "ファームウェアOTAアップデート",
       "priority": "low",
       "status": "failing",
+      "phase": "future",
       "tasks": [
-        "OTAアップデートメカニズム実装",
+        "OTAアップデートメカニズムの実装",
         "設定の永続化",
-        "ファームウェアロールバック機能"
+        "エラー回復手順",
+        "ファームウェアロールバック機能",
+        "リソース制約のあるESP32向けパフォーマンス最適化"
       ]
     },
     {
@@ -133,10 +147,15 @@
       "title": "Kubernetesデプロイ対応",
       "priority": "low",
       "status": "failing",
+      "phase": "future",
       "tasks": [
         "Kubernetesデプロイメントマニフェスト作成",
-        "Helmチャート作成",
-        "モニタリング・アラート設定"
+        "Helmチャートの作成",
+        "マルチデバイスシナリオ向けロードバランシング設定",
+        "モニタリング・アラート設定（Prometheus, Grafana統合）",
+        "ログ集約（ELKスタック等）",
+        "データベースマイグレーションスクリプト",
+        "バックアップ・リカバリ手順"
       ]
     },
     {
@@ -145,12 +164,159 @@
       "title": "呼吸/存在検知アルゴリズム完成",
       "priority": "low",
       "status": "failing",
+      "phase": "partial",
+      "notes": "breathing_detector.pyが存在するが未完成",
       "tasks": [
-        "呼吸検知アルゴリズム完成",
-        "存在検知機能実装",
-        "統合テスト追加",
-        "精度メトリクス測定"
+        "呼吸検知アルゴリズムの完成",
+        "存在検知機能の実装",
+        "統合テストの追加",
+        "ドキュメントの作成",
+        "精度メトリクスの測定・報告"
       ]
+    },
+    {
+      "id": "production-deploy",
+      "issue": 8,
+      "title": "プロダクション環境へのデプロイ",
+      "priority": "low",
+      "status": "failing",
+      "phase": "future",
+      "tasks": [
+        "ESP32デバイスの設置計画",
+        "電源供給方法の検討",
+        "ネットワーク接続（有線/無線）",
+        "耐久性・防塵対策",
+        "サーバーインフラ構築",
+        "コンテナ化（Docker）",
+        "CI/CDパイプライン",
+        "モニタリング・ログ収集",
+        "自動復旧機能",
+        "通信の暗号化",
+        "認証・認可",
+        "データプライバシー対策"
+      ],
+      "dependencies": ["#45"]
+    },
+    {
+      "id": "device-auth-mqtt",
+      "issue": 23,
+      "title": "デバイス認証のMQTT対応",
+      "priority": "high",
+      "status": "failing",
+      "phase": "2",
+      "tasks": [
+        "device_manager.pyの拡張（MQTT credentials生成）",
+        "bcryptによるパスワードハッシュ化",
+        "devices.dbスキーマ更新（mqtt_username, mqtt_password_hash, mqtt_client_id）",
+        "デバイス登録APIの更新",
+        "認証情報ローテーション機能",
+        "マイグレーションスクリプト作成"
+      ]
+    },
+    {
+      "id": "device-online-offline",
+      "issue": 24,
+      "title": "デバイスオンライン/オフライン検知のMQTT対応",
+      "priority": "medium",
+      "status": "failing",
+      "phase": "2",
+      "tasks": [
+        "Last Willメッセージによるオフライン検知",
+        "クリーンセッション設定の最適化",
+        "device_statusテーブル更新ロジック修正",
+        "ダッシュボードへのリアルタイムステータス通知"
+      ],
+      "dependencies": ["#21", "#22"]
+    },
+    {
+      "id": "esp32-mqtt-client",
+      "issue": 25,
+      "title": "ESP32 MQTTクライアント実装",
+      "priority": "high",
+      "status": "failing",
+      "phase": "3",
+      "tasks": [
+        "esp-mqttコンポーネントの追加",
+        "app_main.cへのMQTTクライアント実装",
+        "接続・再接続ロジック（指数バックオフ）",
+        "イベントハンドラ（connect, disconnect, publish, error）",
+        "CSIデータのパブリッシュ関数",
+        "Last Will設定",
+        "KconfigへのMQTT設定追加",
+        "TLS対応（証明書バンドル）",
+        "LEDステータス表示の更新"
+      ],
+      "dependencies": ["#21", "#22", "#23"]
+    },
+    {
+      "id": "dual-mode-firmware",
+      "issue": 26,
+      "title": "HTTP/MQTTデュアルモード対応",
+      "priority": "medium",
+      "status": "failing",
+      "phase": "3",
+      "tasks": [
+        "KconfigでOUTPUT_HTTP/OUTPUT_MQTT選択可能に",
+        "コンパイル時切り替え実装",
+        "共通コード（Wi-Fi, CSI収集）の整理",
+        "両モードでの動作テスト",
+        "ドキュメント更新（ビルド手順）"
+      ],
+      "dependencies": ["#25"]
+    },
+    {
+      "id": "mqtt-integration-test",
+      "issue": 27,
+      "title": "MQTT統合テスト",
+      "priority": "high",
+      "status": "failing",
+      "phase": "4",
+      "tasks": [
+        "Python MQTTシミュレーター作成（wavira/utils/mqtt_simulator.py）",
+        "End-to-Endテスト（ESP32→MQTT Broker→Server→Database→Dashboard）",
+        "負荷テスト（10/50/100台同時接続）",
+        "ネットワーク障害テスト",
+        "QoS動作検証"
+      ],
+      "dependencies": ["#25", "#26"],
+      "acceptance_criteria": {
+        "connection_success_rate": "99.9%",
+        "message_delivery_rate_qos1": "100%",
+        "reconnection_time": "< 5s",
+        "p99_latency": "< 100ms",
+        "cpu_usage_100_devices": "< 50%"
+      }
+    },
+    {
+      "id": "device-mqtt-migration",
+      "issue": 28,
+      "title": "既存デバイスのMQTT移行",
+      "priority": "medium",
+      "status": "failing",
+      "phase": "5",
+      "tasks": [
+        "移行手順書の作成",
+        "OTA更新対応（可能であれば）",
+        "手動更新手順のドキュメント",
+        "既存デバイスへのMQTT credentials発行"
+      ],
+      "dependencies": ["#27"]
+    },
+    {
+      "id": "http-deprecation",
+      "issue": 29,
+      "title": "HTTP CSIエンドポイントの廃止",
+      "priority": "low",
+      "status": "failing",
+      "phase": "5",
+      "tasks": [
+        "/api/v1/csi POSTエンドポイント削除",
+        "/api/v1/csi/batch POSTエンドポイント削除",
+        "HTTP関連コードのクリーンアップ",
+        "ESP32ファームウェアからHTTPコード削除（オプション）",
+        "ドキュメント最終更新"
+      ],
+      "dependencies": ["#28"]
     }
   ]
 }
