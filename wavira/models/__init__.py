@@ -21,6 +21,18 @@ from wavira.models.gesture_recognizer import (
     create_gesture_model,
     DEFAULT_GESTURE_LABELS,
 )
+from wavira.models.optimization import (
+    BenchmarkResult,
+    ModelProfile,
+    ModelBenchmarker,
+    ModelProfiler,
+    INT8Quantizer,
+    MemoryAnalysis,
+    MemoryAnalyzer,
+    GradientAccumulator,
+    WarmupScheduler,
+    BatchOptimizer,
+)
 
 __all__ = [
     "TransformerEncoder",
@@ -39,4 +51,15 @@ __all__ = [
     "GestureRecognizerConfig",
     "create_gesture_model",
     "DEFAULT_GESTURE_LABELS",
+    # Model optimization
+    "BenchmarkResult",
+    "ModelProfile",
+    "ModelBenchmarker",
+    "ModelProfiler",
+    "INT8Quantizer",
+    "MemoryAnalysis",
+    "MemoryAnalyzer",
+    "GradientAccumulator",
+    "WarmupScheduler",
+    "BatchOptimizer",
 ]
