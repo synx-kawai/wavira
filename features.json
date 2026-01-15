@@ -146,22 +146,21 @@
       ]
     },
     {
-      "id": "kubernetes-deploy",
+      "id": "docker-compose-deploy",
       "issue": 45,
-      "title": "Kubernetesデプロイ対応",
+      "title": "Docker Composeデプロイ対応",
       "priority": "low",
       "status": "passing",
       "phase": "future",
       "completed_at": "2026-01-15",
-      "notes": "Kustomize + Helm chart",
+      "notes": "Docker Compose + Production overlay",
       "tasks": [
-        "Kubernetesデプロイメントマニフェスト作成",
-        "Helmチャートの作成",
-        "マルチデバイスシナリオ向けロードバランシング設定",
-        "モニタリング・アラート設定（Prometheus, Grafana統合）",
-        "ログ集約（ELKスタック等）",
-        "データベースマイグレーションスクリプト",
-        "バックアップ・リカバリ手順"
+        "docker-compose.yml作成（開発用）",
+        "docker-compose.prod.yml作成（本番オーバーレイ）",
+        "Dockerfile作成（history-collector, csi-processor）",
+        "Mosquitto設定（dev/prod分離）",
+        "Nginx設定（リバースプロキシ）",
+        ".env.example作成"
       ]
     },
     {

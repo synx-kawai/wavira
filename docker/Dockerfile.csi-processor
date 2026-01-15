@@ -1,0 +1,23 @@
+# CSI Processor Service Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies for PyTorch
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY wavira/ ./wavira/
+COPY tools/csi_visualizer/services/csi_processor.py .
+
+# Create models directory
+RUN mkdir -p /app/models
+
+# Run the service
+CMD ["python", "csi_processor.py", "--mqtt-host", "mosquitto"]

@@ -431,6 +431,56 @@ Supported gestures (default):
 - circle_cw, circle_ccw
 - no_gesture
 
+## Docker Deployment
+
+Wavira can be deployed using Docker Compose for production environments.
+
+### Quick Start
+
+```bash
+# Development (anonymous MQTT, no auth)
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop services
+docker compose down
+```
+
+### Production Deployment
+
+```bash
+# Copy and configure environment
+cp .env.example .env
+# Edit .env with secure credentials
+
+# Generate MQTT passwords
+docker run -it --rm eclipse-mosquitto mosquitto_passwd -c /dev/stdout wavira-server
+
+# Start with production config
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+### Services
+
+| Service | Port | Description |
+|---------|------|-------------|
+| mosquitto | 1883 | MQTT broker for ESP32 devices |
+| mosquitto | 9001 | WebSocket for browser clients |
+| history-collector | 8080 | REST API for historical data |
+| dashboard | 80 | Web dashboard |
+
+### Architecture
+
+```
+ESP32 Devices ──MQTT──→ Mosquitto ──→ History Collector ──→ SQLite
+                            │
+                            └──→ CSI Processor ──→ ML Inference
+                            │
+Dashboard ←──WebSocket──────┘
+```
+
 ## NTU-Fi Dataset
 
 The [NTU-Fi dataset](https://github.com/xyanchen/WiFi-CSI-Sensing-Benchmark) contains:

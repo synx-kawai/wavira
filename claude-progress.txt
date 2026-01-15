@@ -267,17 +267,16 @@ Total tests: 295 -> 321 (26 new unit tests)
   - partitions_ota.csv (A/Bパーティション)
   - Kconfig OTA設定追加
 
-- Completed #45: Kubernetesデプロイ対応
-  - deploy/kubernetes/ ディレクトリ作成
-    - namespace.yaml, configmap.yaml, secret.yaml
-    - history-collector-deployment.yaml, mosquitto-deployment.yaml
-    - history-collector-service.yaml, mosquitto-service.yaml
-    - ingress.yaml, kustomization.yaml
-    - README.md
-  - deploy/helm/wavira/ Helm chart作成
-    - Chart.yaml, values.yaml
-    - templates/ (deployment, service, configmap, secret, ingress, pvc)
-    - README.md
+- Completed #45: Docker Composeデプロイ対応 (Kubernetesから変更)
+  - docker-compose.yml 作成（開発用構成）
+  - docker-compose.prod.yml 作成（本番オーバーレイ）
+  - docker/Dockerfile.history-collector 作成
+  - docker/Dockerfile.csi-processor 作成
+  - config/mosquitto/ 設定ファイル (dev/prod分離)
+  - config/nginx/ リバースプロキシ設定
+  - .env.example 作成
+  - README.md Docker Deploymentセクション追加
+  - deploy/kubernetes, deploy/helm 削除（不要のため）
 
 ## All Issues Complete (except #8)
 - 18 issues completed
@@ -287,5 +286,5 @@ Total tests: 295 -> 321 (26 new unit tests)
 - Run `./init.sh` to verify environment
 - Check `features.json` for current feature status
 - All MQTT-related issues (#25-#29) are complete
-- OTA (#44) and Kubernetes (#45) are complete
+- OTA (#44) and Docker Compose (#45) are complete
 - Only #8 (Production Deploy) remains - depends on actual deployment environment

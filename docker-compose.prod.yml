@@ -1,0 +1,43 @@
+# Wavira Production Overrides
+# Use with: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+version: '3.8'
+
+services:
+  mosquitto:
+    volumes:
+      - ./config/mosquitto/mosquitto.prod.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./config/mosquitto/passwords.txt:/mosquitto/config/passwords.txt:ro
+      - ./config/mosquitto/acl.conf:/mosquitto/config/acl.conf:ro
+    environment:
+      - MOSQUITTO_USERNAME=${MOSQUITTO_USERNAME}
+      - MOSQUITTO_PASSWORD=${MOSQUITTO_PASSWORD}
+
+  history-collector:
+    environment:
+      - API_KEY=${API_KEY}
+      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-100}
+      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-60}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  csi-processor:
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  dashboard:
+    volumes:
+      - ./config/nginx/default.prod.conf:/etc/nginx/conf.d/default.conf:ro
