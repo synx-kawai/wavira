@@ -3,8 +3,10 @@
 # Updated: 2026-01-15
 
 ## Current Status
-- All features initialized as "failing" - ready for incremental work
-- Priority order: High > Medium > Low
+- #47 completed - cleanup of deleted components
+- #38 in progress - test coverage expansion
+- Test count: 106 tests passing
+- Coverage: 48% (up from 45%)
 
 ## Session History
 
@@ -12,7 +14,20 @@
 - Reviewed and merged PR#36 (gesture recognition with 3D CNN)
 - Created 11 new GitHub issues for remaining tasks
 - Initialized long-running agent harness (features.json, init.sh, claude-progress.txt)
-- Next: Start with #47 (削除されたコンポーネントの整理)
+
+### Session 2 (2026-01-15)
+- Completed #47: Cleanup deleted components
+  - Removed obsolete test_api_server.py
+  - Created test_history_collector.py (15 new tests)
+  - Updated README.md for MQTT architecture
+  - Updated setup.sh for MQTT configuration
+  - Marked Terraform config as deprecated
+  - Updated config.yaml with MQTT settings
+- Started #38: Test coverage expansion
+  - Created test_crowd_estimator.py (24 new tests)
+  - CrowdEstimator coverage: 32% -> 97%
+  - Total tests: 83 -> 106
+  - Overall coverage: 45% -> 48%
 
 ## Feature Status Overview
 | ID | Issue | Title | Priority | Status |

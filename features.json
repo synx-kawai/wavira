@@ -8,7 +8,8 @@
       "issue": 47,
       "title": "削除されたコンポーネントの整理",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
+      "completed_at": "2026-01-15",
       "tasks": [
         "削除されたファイルへの参照を確認",
         "docker-compose.ymlの更新確認",

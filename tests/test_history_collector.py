@@ -221,7 +221,9 @@ class TestHistoryDatabase:
 
         summary = db.get_hourly_summary("esp32-001", hours=1)
         assert len(summary) >= 1
-        assert summary[0]["sample_count"] == 10
+        # Total samples should be 10 across all hourly buckets
+        total_samples = sum(s["sample_count"] for s in summary)
+        assert total_samples == 10
 
 
 # =============================================================================
