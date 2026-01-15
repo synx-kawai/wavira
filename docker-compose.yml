@@ -4,8 +4,6 @@
 # Usage:
 #   Development:  docker compose up -d
 #   Production:   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-#
-version: '3.8'
 
 services:
   # ===========================================================================
@@ -37,10 +35,11 @@ services:
   # ===========================================================================
   history-collector:
     build:
-      context: .
-      dockerfile: docker/Dockerfile.history-collector
+      context: ./tools/csi_visualizer/services
+      dockerfile: Dockerfile
     container_name: wavira-history-collector
     restart: unless-stopped
+    command: ["python", "history_collector.py", "--mqtt-host", "mosquitto"]
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:
@@ -71,10 +70,11 @@ services:
   # ===========================================================================
   csi-processor:
     build:
-      context: .
-      dockerfile: docker/Dockerfile.csi-processor
+      context: ./tools/csi_visualizer/services
+      dockerfile: Dockerfile
     container_name: wavira-csi-processor
     restart: unless-stopped
+    command: ["python", "csi_processor.py", "--mqtt-host", "mosquitto"]
     depends_on:
       mosquitto:
         condition: service_healthy
