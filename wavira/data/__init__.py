@@ -22,6 +22,18 @@ from wavira.data.gesture_preprocessing import (
     GesturePreprocessConfig,
     GestureAugmentor,
 )
+from wavira.data.validation import (
+    CSIDataConfig,
+    CSIFormatValidator,
+    CSIAnomalyDetector,
+    CSIQualityMetrics,
+    CSIDuplicateDetector,
+    MissingDataHandler,
+    CSIDataValidator,
+    ValidationLevel,
+    ValidationResult,
+    ValidationIssue,
+)
 
 __all__ = [
     "hampel_filter",
@@ -42,4 +54,15 @@ __all__ = [
     "GesturePreprocessor",
     "GesturePreprocessConfig",
     "GestureAugmentor",
+    # Data validation
+    "CSIDataConfig",
+    "CSIFormatValidator",
+    "CSIAnomalyDetector",
+    "CSIQualityMetrics",
+    "CSIDuplicateDetector",
+    "MissingDataHandler",
+    "CSIDataValidator",
+    "ValidationLevel",
+    "ValidationResult",
+    "ValidationIssue",
 ]
