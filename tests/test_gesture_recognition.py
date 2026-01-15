@@ -142,7 +142,7 @@ class TestDualESP32GestureRecognizer:
 
     def test_fusion_methods(self):
         """Test different fusion methods."""
-        for method in ['concat', 'add']:
+        for method in ['concat', 'add', 'attention']:
             model = DualESP32GestureRecognizer(fusion_method=method)
             x1 = torch.randn(2, 3, 114, 32)
             x2 = torch.randn(2, 3, 114, 32)

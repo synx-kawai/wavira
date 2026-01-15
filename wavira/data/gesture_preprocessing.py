@@ -164,10 +164,17 @@ def preprocess_gesture_csi(
 
     Args:
         csi_data: Raw CSI data of shape (n_routes, n_subcarriers, n_frames)
+            where:
+            - n_routes: Number of TX*RX antenna combinations (e.g., 3)
+            - n_subcarriers: Number of OFDM subcarriers (ESP32: 114, Intel 5300: 30)
+            - n_frames: Number of time samples (last axis, filtered along this dimension)
+
+            Note: The model expects input of shape (batch, n_routes, n_subcarriers, n_frames)
+            after adding batch dimension with unsqueeze(0) or via DataLoader.
         config: Preprocessing configuration
 
     Returns:
-        Preprocessed CSI data
+        Preprocessed CSI data of same shape as input
     """
     if config is None:
         config = GesturePreprocessConfig()

@@ -342,7 +342,8 @@ class SyntheticGestureDataset(Dataset):
 
     def _generate_samples(self, n_samples_per_gesture: int):
         """Generate synthetic gesture samples."""
-        np.random.seed(42)  # For reproducibility
+        # Use local RNG to avoid affecting global random state
+        self._rng = np.random.default_rng(42)
 
         for label_idx, gesture_label in enumerate(self.gesture_labels):
             for _ in range(n_samples_per_gesture):
@@ -359,7 +360,7 @@ class SyntheticGestureDataset(Dataset):
         csi = np.zeros((self.n_routes, self.n_subcarriers, self.n_frames))
 
         # Base amplitude pattern
-        base = np.random.uniform(20, 40, (self.n_routes, self.n_subcarriers, 1))
+        base = self._rng.uniform(20, 40, (self.n_routes, self.n_subcarriers, 1))
 
         # Gesture-specific patterns
         if gesture_type == "zoom_out":
@@ -393,7 +394,7 @@ class SyntheticGestureDataset(Dataset):
             csi[:, sc, :] = base[:, sc, :] + pattern * np.cos(phase_shift)
 
         # Add noise
-        noise = np.random.normal(0, self.noise_level * base.mean(), csi.shape)
+        noise = self._rng.normal(0, self.noise_level * base.mean(), csi.shape)
         csi += noise
 
         return csi.astype(np.float32)

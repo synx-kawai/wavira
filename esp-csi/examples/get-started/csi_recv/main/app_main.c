@@ -305,6 +305,10 @@ static void led_timer_callback(void *arg)
         s_led_state = LED_STATE_CONNECTED;
 
         // Check for new activity pulses
+        // Note: Read-modify-write on volatile flags. This is safe because:
+        // 1. ESP32 timer callbacks run in ISR context on a single core
+        // 2. The flags are only set (not read) from other contexts
+        // 3. For multi-core scenarios, consider using atomic operations
         if (s_led_tx_pulse || s_led_rx_pulse) {
             s_led_pulse_duration = LED_PULSE_TICKS;
             s_led_tx_pulse = false;
