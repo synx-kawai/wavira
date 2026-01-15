@@ -202,8 +202,9 @@
       "issue": 23,
       "title": "デバイス認証のMQTT対応",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
       "phase": "2",
+      "completed_at": "2026-01-15",
       "tasks": [
         "device_manager.pyの拡張（MQTT credentials生成）",
         "bcryptによるパスワードハッシュ化",

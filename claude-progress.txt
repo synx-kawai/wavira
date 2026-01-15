@@ -3,9 +3,9 @@
 # Updated: 2026-01-15
 
 ## Current Status
-- 6 features completed, 12 features pending
-- Test count: 132 tests passing
-- Coverage: 48%
+- 7 features completed, 11 features pending
+- Test count: 172 tests passing
+- Coverage: ~50%
 
 ## Session History
 
@@ -92,7 +92,7 @@
 #### Phase 2 - サーバーサイド実装
 | ID | Issue | Title | Priority | Status |
 |----|-------|-------|----------|--------|
-| device-auth-mqtt | #23 | デバイス認証のMQTT対応 | high | failing |
+| device-auth-mqtt | #23 | デバイス認証のMQTT対応 | high | passing |
 | device-online-offline | #24 | オンライン/オフライン検知 | medium | failing |
 
 #### Phase 3 - ファームウェア実装
@@ -126,15 +126,32 @@
 | breathing-detection | #46 | 呼吸/存在検知 | low | failing (partial) |
 | production-deploy | #8 | プロダクションデプロイ | low | failing |
 
+### Session 5 (2026-01-15)
+- Completed #23: デバイス認証のMQTT対応
+  - Created device_manager.py with:
+    - MQTT credential generation (username/password/client_id)
+    - bcrypt password hashing for secure storage
+    - Device registration with API key generation
+    - Credential rotation support
+    - Database migration for existing devices
+    - Mosquitto password/ACL file generation
+  - Updated history_collector.py with admin API endpoints:
+    - POST /api/v1/admin/devices - Register new device
+    - GET /api/v1/admin/devices - List all devices
+    - POST /api/v1/admin/devices/{id}/rotate-mqtt - Rotate credentials
+    - DELETE /api/v1/admin/devices/{id} - Delete device
+    - POST /api/v1/admin/migrate-mqtt - Bulk migration
+  - Added test_device_manager.py (40 new tests)
+  - Total tests: 132 -> 172
+
 ## Recommended Next Steps
-1. **最優先**: Phase 2 の #23 (デバイス認証のMQTT対応) を実装
-2. #24 (オンライン/オフライン検知) は #23 に依存
-3. Phase 3 の #25 (ESP32 MQTT) は実機テストが必要
-4. 並行して #42 (データ検証) や #43 (最適化) を進められる
+1. **最優先**: Phase 2 の #24 (オンライン/オフライン検知) を実装
+2. Phase 3 の #25 (ESP32 MQTT) は実機テストが必要
+3. 並行して #42 (データ検証) や #43 (最適化) を進められる
 
 ## Notes for Next Session
 - Run `./init.sh` to verify environment
 - Check `features.json` for current feature status
 - Read this file for context on previous work
 - Commit progress with descriptive messages
-- Phase 2 features should be prioritized
+- #23 completed, proceed to #24
