@@ -158,14 +158,53 @@
 ## Phase 2 Complete!
 Both server-side MQTT features (#23, #24) are now implemented.
 
+### Session 6 (2026-01-15)
+- Completed #42: データ検証フレームワーク
+  - Created wavira/data/validation.py with:
+    - CSIFormatValidator: Shape, subcarrier, packet validation
+    - CSIAnomalyDetector: NaN/Inf, zero, outlier detection
+    - CSIQualityMetrics: SNR, temporal consistency, subcarrier correlation
+    - CSIDuplicateDetector: Exact and near-duplicate detection
+    - MissingDataHandler: Interpolation and drop strategies
+    - CSIDataValidator: Main validator combining all components
+  - Added test_validation.py (62 new tests)
+
+- Completed #43: モデル最適化とベンチマーク
+  - Created wavira/models/optimization.py with:
+    - ModelBenchmarker: Latency, throughput benchmarking
+    - ModelProfiler: Parameter counting, FLOPS estimation
+    - INT8Quantizer: Dynamic quantization support
+    - MemoryAnalyzer: Memory usage analysis
+    - GradientAccumulator: Large batch training support
+    - WarmupScheduler: Learning rate warmup scheduling
+    - BatchOptimizer: Optimal batch size finding
+  - Added test_optimization.py (33 new tests)
+
+- Completed #46: 呼吸/存在検知アルゴリズム完成
+  - Created wavira/detection/ module with:
+    - breathing.py: BreathingDetector, KalmanFilter1D
+    - presence.py: PresenceDetector
+    - __init__.py: Module exports
+  - Migrated from tools/csi_visualizer/breathing_detector.py
+  - Added comprehensive configuration options
+  - Added test_detection.py (30 new tests)
+
+- Total tests: 172 -> 295 (123 new tests)
+
+## Current Status
+- 11 features completed
+- 7 features pending (mostly hardware-dependent)
+- Test count: 295 tests
+- Coverage: ~55% (estimated)
+
 ## Recommended Next Steps
 1. Phase 3 の #25 (ESP32 MQTT クライアント) は実機が必要
-2. #42 (データ検証) または #43 (最適化) を進められる
-3. #46 (呼吸/存在検知) は既存コードがあり着手可能
+2. #44 (OTA) や #45 (Kubernetes) は将来の対応
+3. 既存テストの修正 (test_crowd_estimator.py の gradient_flow テスト)
 
 ## Notes for Next Session
 - Run `./init.sh` to verify environment
 - Check `features.json` for current feature status
 - Read this file for context on previous work
 - Commit progress with descriptive messages
-- Phase 2 complete, move to Phase 3 or candidate features
+- New modules: wavira/data/validation.py, wavira/models/optimization.py, wavira/detection/
