@@ -36,6 +36,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 
+from pydantic import BaseModel, Field
+
 from security import (
     SecurityConfig,
     load_security_config,
@@ -45,6 +47,11 @@ from security import (
     InputValidator,
     get_mqtt_credentials,
     mask_password,
+)
+from device_manager import (
+    DeviceManager,
+    DeviceManagerConfig,
+    MQTTCredentials,
 )
 
 logging.basicConfig(
@@ -384,15 +391,59 @@ db: Optional[HistoryDatabase] = None
 mqtt_collector: Optional[MQTTCollector] = None
 security_config: Optional[SecurityConfig] = None
 api_key_auth: Optional[APIKeyAuth] = None
+device_manager: Optional[DeviceManager] = None
+
+
+# =============================================================================
+# Pydantic Models for API
+# =============================================================================
+
+
+class DeviceRegistrationRequest(BaseModel):
+    """Request model for device registration."""
+    device_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-zA-Z0-9_-]+$",
+        description="Unique device identifier"
+    )
+    zone: str = Field(
+        default="default",
+        max_length=64,
+        description="Device zone/location"
+    )
+    generate_mqtt: bool = Field(
+        default=True,
+        description="Whether to generate MQTT credentials"
+    )
+
+
+class DeviceRegistrationResponse(BaseModel):
+    """Response model for device registration."""
+    device_id: str
+    api_key: str
+    mqtt_credentials: Optional[dict] = None
+    message: str
+
+
+class MQTTCredentialsResponse(BaseModel):
+    """Response model for MQTT credentials."""
+    device_id: str
+    username: str
+    password: str
+    client_id: str
+    message: str
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    global db, mqtt_collector, security_config, api_key_auth
+    global db, mqtt_collector, security_config, api_key_auth, device_manager
 
     # Startup
     db_path = os.environ.get("DB_PATH", "history.db")
+    devices_db_path = os.environ.get("DEVICES_DB_PATH", "devices.db")
     mqtt_host = os.environ.get("MQTT_HOST", "localhost")
     mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
 
@@ -401,6 +452,11 @@ async def lifespan(app: FastAPI):
     api_key_auth = APIKeyAuth(security_config)
     logger.info(f"Security: API key required={security_config.require_api_key}, "
                 f"rate limit={security_config.rate_limit_requests}/{security_config.rate_limit_window}s")
+
+    # Initialize device manager
+    device_manager_config = DeviceManagerConfig(db_path=devices_db_path)
+    device_manager = DeviceManager(device_manager_config)
+    logger.info(f"Device manager initialized: {devices_db_path}")
 
     db = HistoryDatabase(db_path)
     mqtt_collector = MQTTCollector(mqtt_host, mqtt_port, db)
@@ -525,6 +581,172 @@ async def get_all_hourly_summary(
     if not db:
         raise HTTPException(status_code=503, detail="Database not initialized")
     return db.get_hourly_summary(None, hours)
+
+
+# =============================================================================
+# Device Management API (Issue #23)
+# =============================================================================
+
+
+@app.post("/api/v1/admin/devices", response_model=DeviceRegistrationResponse)
+async def register_device(
+    request: DeviceRegistrationRequest,
+    _api_key: str = Depends(get_api_key_auth),
+):
+    """
+    Register a new device and generate credentials.
+
+    This endpoint creates a new device with:
+    - API key for REST API authentication
+    - MQTT credentials (username, password, client_id) for MQTT authentication
+
+    IMPORTANT: Save the returned credentials securely.
+    The API key and MQTT password cannot be retrieved later.
+    """
+    if not device_manager:
+        raise HTTPException(status_code=503, detail="Device manager not initialized")
+
+    try:
+        device, api_key, mqtt_creds = device_manager.register_device(
+            device_id=request.device_id,
+            zone=request.zone,
+            generate_mqtt=request.generate_mqtt,
+        )
+
+        response = DeviceRegistrationResponse(
+            device_id=device.device_id,
+            api_key=api_key,
+            mqtt_credentials=mqtt_creds.to_dict(include_password=True) if mqtt_creds else None,
+            message="Device registered successfully. Save credentials securely.",
+        )
+        return response
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/v1/admin/devices")
+async def list_managed_devices(
+    zone: Optional[str] = Query(default=None, max_length=64),
+    online_only: bool = Query(default=False),
+    _api_key: str = Depends(get_api_key_auth),
+):
+    """List all registered devices with their status."""
+    if not device_manager:
+        raise HTTPException(status_code=503, detail="Device manager not initialized")
+
+    devices = device_manager.list_devices(zone=zone, online_only=online_only)
+    return [device.to_dict() for device in devices]
+
+
+@app.get("/api/v1/admin/devices/{device_id}")
+async def get_managed_device(
+    device_id: str = Path(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$"),
+    _api_key: str = Depends(get_api_key_auth),
+):
+    """Get a specific device's information."""
+    if not device_manager:
+        raise HTTPException(status_code=503, detail="Device manager not initialized")
+
+    device_id = InputValidator.device_id(device_id)
+    device = device_manager.get_device(device_id)
+
+    if not device:
+        raise HTTPException(status_code=404, detail=f"Device not found: {device_id}")
+
+    return device.to_dict()
+
+
+@app.post("/api/v1/admin/devices/{device_id}/rotate-mqtt", response_model=MQTTCredentialsResponse)
+async def rotate_mqtt_credentials(
+    device_id: str = Path(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$"),
+    _api_key: str = Depends(get_api_key_auth),
+):
+    """
+    Rotate MQTT credentials for a device.
+
+    This generates new MQTT username, password, and client_id.
+    The old credentials will be invalidated.
+
+    IMPORTANT: Update the device firmware with new credentials.
+    """
+    if not device_manager:
+        raise HTTPException(status_code=503, detail="Device manager not initialized")
+
+    device_id = InputValidator.device_id(device_id)
+    creds = device_manager.rotate_mqtt_credentials(device_id)
+
+    if not creds:
+        raise HTTPException(status_code=404, detail=f"Device not found: {device_id}")
+
+    return MQTTCredentialsResponse(
+        device_id=device_id,
+        username=creds.username,
+        password=creds.password,
+        client_id=creds.client_id,
+        message="MQTT credentials rotated. Update device firmware with new credentials.",
+    )
+
+
+@app.delete("/api/v1/admin/devices/{device_id}")
+async def delete_device(
+    device_id: str = Path(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$"),
+    _api_key: str = Depends(get_api_key_auth),
+):
+    """Delete a device and its credentials."""
+    if not device_manager:
+        raise HTTPException(status_code=503, detail="Device manager not initialized")
+
+    device_id = InputValidator.device_id(device_id)
+    deleted = device_manager.delete_device(device_id)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Device not found: {device_id}")
+
+    return {"message": f"Device deleted: {device_id}"}
+
+
+@app.get("/api/v1/admin/devices-without-mqtt")
+async def get_devices_without_mqtt(
+    _api_key: str = Depends(get_api_key_auth),
+):
+    """Get devices that don't have MQTT credentials (for migration)."""
+    if not device_manager:
+        raise HTTPException(status_code=503, detail="Device manager not initialized")
+
+    devices = device_manager.get_devices_without_mqtt()
+    return [device.to_dict() for device in devices]
+
+
+@app.post("/api/v1/admin/migrate-mqtt")
+async def migrate_devices_to_mqtt(
+    _api_key: str = Depends(get_api_key_auth),
+):
+    """
+    Add MQTT credentials to all devices that don't have them.
+
+    This is useful for migrating existing devices to MQTT authentication.
+
+    IMPORTANT: Save the returned credentials securely.
+    """
+    if not device_manager:
+        raise HTTPException(status_code=503, detail="Device manager not initialized")
+
+    results = device_manager.migrate_all_devices_to_mqtt()
+
+    if not results:
+        return {"message": "No devices need migration", "devices": []}
+
+    return {
+        "message": f"Migrated {len(results)} devices",
+        "devices": [
+            {
+                "device_id": device_id,
+                "mqtt_credentials": creds.to_dict(include_password=True),
+            }
+            for device_id, creds in results
+        ],
+    }
 
 
 def main():
