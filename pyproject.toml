@@ -118,6 +118,9 @@ filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
 ]
+markers = [
+    "mqtt: tests that require a live MQTT broker (use --mqtt-broker to run)",
+]
 
 [tool.coverage.run]
 source = ["wavira"]

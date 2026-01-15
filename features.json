@@ -274,14 +274,18 @@
       "issue": 27,
       "title": "MQTT統合テスト",
       "priority": "high",
-      "status": "failing",
+      "status": "partial",
       "phase": "4",
+      "notes": "シミュレーター完成、E2Eテストはブローカー起動が必要",
       "tasks": [
         "Python MQTTシミュレーター作成（wavira/utils/mqtt_simulator.py）",
         "End-to-Endテスト（ESP32→MQTT Broker→Server→Database→Dashboard）",
         "負荷テスト（10/50/100台同時接続）",
         "ネットワーク障害テスト",
         "QoS動作検証"
+      ],
+      "tasks_completed": [
+        "Python MQTTシミュレーター作成（wavira/utils/mqtt_simulator.py）"
       ],
       "dependencies": ["#25", "#26"],
       "acceptance_criteria": {

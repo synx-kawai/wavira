@@ -202,9 +202,40 @@ Both server-side MQTT features (#23, #24) are now implemented.
 2. #44 (OTA) や #45 (Kubernetes) は将来の対応
 3. 既存テストの修正 (test_crowd_estimator.py の gradient_flow テスト)
 
+### Session 7 (2026-01-15)
+- Completed #27: MQTT統合テスト (partial - シミュレーター部分)
+  - Created wavira/utils/mqtt_simulator.py with:
+    - SimulatorConfig: Configurable settings for device simulation
+    - SimulatedDevice: Single ESP32 device simulator with CSI data generation
+    - MQTTDeviceSimulator: Manager for multiple simulated devices
+    - Presence patterns: ALWAYS_PRESENT, ALWAYS_ABSENT, RANDOM, PERIODIC, BREATHING
+    - Device states: DISCONNECTED, CONNECTING, CONNECTED, ERROR
+    - Last Will message support for offline detection
+    - Exponential backoff reconnection
+    - run_load_test() helper for quick load testing
+  - Created tests/test_mqtt_integration.py (39 tests):
+    - Unit tests (26): Config, stats, presence patterns, CSI generation, message formatting
+    - Integration tests (13): Require live MQTT broker (--mqtt-broker flag)
+    - Load tests: 10 devices, high frequency publishing
+    - QoS behavior tests: QoS 0 and QoS 1
+    - Error handling: Invalid broker, port
+  - Created tests/conftest.py for shared pytest configuration
+  - Updated pyproject.toml with mqtt marker registration
+  - Updated wavira/utils/__init__.py with optional MQTT exports
+
+Note: #27 is partially complete:
+  - [x] Python MQTTシミュレーター作成
+  - [ ] End-to-Endテスト (requires history_collector running)
+  - [ ] 負荷テスト (10/50/100台) - framework ready, needs broker
+  - [ ] ネットワーク障害テスト - partial (disconnect injection implemented)
+  - [ ] QoS動作検証 - framework ready
+
+Total tests: 295 -> 321 (26 new unit tests)
+
 ## Notes for Next Session
 - Run `./init.sh` to verify environment
 - Check `features.json` for current feature status
 - Read this file for context on previous work
 - Commit progress with descriptive messages
-- New modules: wavira/data/validation.py, wavira/models/optimization.py, wavira/detection/
+- New modules: wavira/data/validation.py, wavira/models/optimization.py, wavira/detection/, wavira/utils/mqtt_simulator.py
+- To run MQTT integration tests with broker: `pytest tests/test_mqtt_integration.py --mqtt-broker`
