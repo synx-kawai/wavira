@@ -184,7 +184,8 @@ static void csi_trigger_task(void *pvParameter)
     ESP_LOGI(TAG, "CSI trigger task started (10Hz UDP to gateway)");
 
     int led_counter = 0;
-    while (1) {
+    while (s_wifi_connected || !s_mqtt_connected) {
+        // Continue running while system is active
         if (s_wifi_connected) {
             sendto(sock, trigger_data, 3, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
             // Flash LED every 5th packet (~2Hz visible blink for TX activity)
@@ -195,6 +196,11 @@ static void csi_trigger_task(void *pvParameter)
         }
         vTaskDelay(pdMS_TO_TICKS(100));  // 10Hz
     }
+
+    // Clean up socket before task exit (defensive programming)
+    close(sock);
+    ESP_LOGI(TAG, "CSI trigger task stopped, socket closed");
+    vTaskDelete(NULL);
 }
 
 static void wifi_csi_init(void *ctx)

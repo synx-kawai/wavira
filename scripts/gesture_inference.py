@@ -187,7 +187,9 @@ class GestureInferenceEngine:
 
     def _load_model(self, model_path: str) -> Tuple[torch.nn.Module, Dict, List[str]]:
         """Load trained model from checkpoint."""
-        checkpoint = torch.load(model_path, map_location=self.device)
+        # Use weights_only=False for backward compatibility with checkpoints
+        # containing config dicts. Only load from trusted sources.
+        checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
 
         model_config = checkpoint.get('config', {})
         gesture_labels = checkpoint.get('gesture_labels', DEFAULT_GESTURE_LABELS)
