@@ -1,0 +1,151 @@
+{
+  "project": "wavira",
+  "description": "Wi-Fi CSI based gesture recognition and person re-identification system",
+  "created_at": "2026-01-15",
+  "features": [
+    {
+      "id": "cleanup-deleted-components",
+      "issue": 47,
+      "title": "削除されたコンポーネントの整理",
+      "priority": "high",
+      "status": "failing",
+      "tasks": [
+        "削除されたファイルへの参照を確認",
+        "docker-compose.ymlの更新確認",
+        "services/csi_processor.pyとhistory_collector.pyが同等機能を提供していることを確認",
+        "不完全な実装があればサービスに追加"
+      ]
+    },
+    {
+      "id": "test-coverage",
+      "issue": 38,
+      "title": "テストカバレッジ拡充",
+      "priority": "high",
+      "status": "failing",
+      "tasks": [
+        "CrowdEstimatorモデルのユニットテスト追加",
+        "Training pipelineの統合テスト追加",
+        "End-to-end inferenceテスト追加",
+        "シリアル通信のエッジケーステスト追加",
+        "Dockerサービスのテスト追加"
+      ]
+    },
+    {
+      "id": "security-hardening",
+      "issue": 40,
+      "title": "セキュリティ強化",
+      "priority": "high",
+      "status": "failing",
+      "tasks": [
+        "APIエンドポイントの入力サニタイズ",
+        "CORSの適切な設定",
+        "レート制限の実装",
+        "MQTT認証情報の安全な保存",
+        "APIのTLS/SSLサポート"
+      ]
+    },
+    {
+      "id": "readme-completion",
+      "issue": 37,
+      "title": "README.md Coming Soonセクション完成",
+      "priority": "medium",
+      "status": "failing",
+      "tasks": [
+        "Crowd Level Estimation Trainingセクションの完成",
+        "Real-time Inferenceセクションの完成",
+        "Gesture Recognitionモジュールのドキュメント追加"
+      ]
+    },
+    {
+      "id": "cicd-enhancement",
+      "issue": 39,
+      "title": "CI/CD パイプライン強化",
+      "priority": "medium",
+      "status": "failing",
+      "tasks": [
+        "コード品質チェック（pylint, flake8, black）追加",
+        "セキュリティスキャン（bandit, safety）追加",
+        "型チェック（mypy）追加",
+        "カバレッジレポートとしきい値設定",
+        "Dockerイメージのビルド・プッシュ"
+      ]
+    },
+    {
+      "id": "developer-docs",
+      "issue": 41,
+      "title": "開発者向けドキュメント整備",
+      "priority": "medium",
+      "status": "failing",
+      "tasks": [
+        "CONTRIBUTING.md作成",
+        "DEVELOPMENT.md作成",
+        "ARCHITECTURE.md作成",
+        "API.md作成",
+        "TROUBLESHOOTING.md作成"
+      ]
+    },
+    {
+      "id": "data-validation",
+      "issue": 42,
+      "title": "データ検証フレームワーク",
+      "priority": "medium",
+      "status": "failing",
+      "tasks": [
+        "CSI入力データのバリデーションフレームワーク作成",
+        "収集データの異常検知",
+        "データ品質メトリクス",
+        "wavira/data/validation.py作成"
+      ]
+    },
+    {
+      "id": "performance-optimization",
+      "issue": 43,
+      "title": "モデル最適化とベンチマーク",
+      "priority": "medium",
+      "status": "failing",
+      "tasks": [
+        "推論レイテンシのベンチマーク",
+        "モデルスループットのプロファイリング",
+        "INT8量子化サポート",
+        "バッチ推論最適化"
+      ]
+    },
+    {
+      "id": "firmware-ota",
+      "issue": 44,
+      "title": "ファームウェアOTAアップデート",
+      "priority": "low",
+      "status": "failing",
+      "tasks": [
+        "OTAアップデートメカニズム実装",
+        "設定の永続化",
+        "ファームウェアロールバック機能"
+      ]
+    },
+    {
+      "id": "kubernetes-deploy",
+      "issue": 45,
+      "title": "Kubernetesデプロイ対応",
+      "priority": "low",
+      "status": "failing",
+      "tasks": [
+        "Kubernetesデプロイメントマニフェスト作成",
+        "Helmチャート作成",
+        "モニタリング・アラート設定"
+      ]
+    },
+    {
+      "id": "breathing-detection",
+      "issue": 46,
+      "title": "呼吸/存在検知アルゴリズム完成",
+      "priority": "low",
+      "status": "failing",
+      "tasks": [
+        "呼吸検知アルゴリズム完成",
+        "存在検知機能実装",
+        "統合テスト追加",
+        "精度メトリクス測定"
+      ]
+    }
+  ]
+}

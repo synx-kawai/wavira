@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(pip3 install:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(python -c:*)",
+      "Bash(python scripts/train_gesture.py:*)",
+      "Bash(timeout 60 python scripts/train_gesture.py:*)",
+      "Bash(timeout 8 python:*)",
+      "Bash(timeout 5 python:*)",
+      "Bash(timeout 20 python:*)",
+      "Bash(timeout 10 python:*)",
+      "Bash(timeout 25 python:*)"
+    ]
+  }
+}

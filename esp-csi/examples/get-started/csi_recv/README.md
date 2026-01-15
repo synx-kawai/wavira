@@ -1,12 +1,20 @@
 # ESP32 CSI Receiver Firmware
 
-ESP32でWi-Fi CSI（Channel State Information）を収集し、HTTPでサーバーに送信するファームウェアです。
+ESP32でWi-Fi CSI（Channel State Information）を収集し、MQTTでブローカーに送信するファームウェアです。
 
 ## 必要条件
 
 - ESP-IDF v5.0以上
 - ESP32/ESP32-S3/ESP32-C3デバイス
-- Wavira APIサーバー（`tools/csi_visualizer/api_server.py`）
+- MQTTブローカー（Mosquitto推奨）
+
+## アーキテクチャ
+
+```
+ESP32 (CSI収集) --MQTT--> Mosquitto ---> CSI Processor / History Collector
+                              |
+                              +--> Dashboard (WebSocket)
+```
 
 ## クイックスタート
 
@@ -36,14 +44,14 @@ menuconfigで以下を設定してください：
 | `WiFi SSID` | 接続するWi-FiのSSID | `MyHomeWiFi` |
 | `WiFi Password` | Wi-Fiパスワード | `password123` |
 
-#### サーバー設定
-`Wavira CSI Configuration` → `HTTP Server Configuration`
+#### MQTT設定
+`Wavira CSI Configuration` → `MQTT Configuration`
 
 | 項目 | 説明 | 例 |
 |------|------|-----|
-| `Server URL` | CSIデータ送信先 | `http://192.168.1.100:8080/api/v1/csi` |
-| `Batch Endpoint` | バッチ送信先 | `http://192.168.1.100:8080/api/v1/csi/batch` |
-| `API Key` | 認証用APIキー | `wvr_xxxx...` |
+| `MQTT Broker URL` | MQTTブローカーのURL | `mqtt://192.168.1.100:1883` |
+| `MQTT Username` | ユーザー名（オプション） | `wavira` |
+| `MQTT Password` | パスワード（オプション） | `secret` |
 
 #### デバイス設定
 `Wavira CSI Configuration` → `Device Configuration`
@@ -66,32 +74,49 @@ idf.py -p /dev/cu.usbserial-10 flash
 idf.py -p /dev/cu.usbserial-10 monitor
 ```
 
-## APIキーの取得方法
+## MQTTブローカーのセットアップ
 
-### 方法1: サーバー起動時に自動生成
+### Docker Compose（推奨）
 
 ```bash
 cd tools/csi_visualizer
-python api_server.py --port 8080
+docker-compose up -d
 ```
 
-起動ログに表示されるAdmin APIキーを使用できます。
+これにより以下のサービスが起動します：
+- Mosquitto（MQTT: 1883, WebSocket: 9001）
+- CSI Processor
+- History Collector（REST API: 8080）
+- Dashboard（HTTP: 80）
 
-### 方法2: デバイス登録APIで取得
+### 手動セットアップ
 
 ```bash
-# デバイスを登録してAPIキーを取得
-curl -X POST http://localhost:8080/api/v1/admin/devices \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_ADMIN_API_KEY" \
-  -d '{
-    "device_id": "esp32-001",
-    "name": "Living Room ESP32",
-    "zone": "living-room"
-  }'
+# Mosquittoのインストール（macOS）
+brew install mosquitto
+
+# 起動
+mosquitto -c /usr/local/etc/mosquitto/mosquitto.conf
 ```
 
-レスポンスに含まれる`api_key`をファームウェアに設定します。
+## MQTTトピック
+
+| トピック | 方向 | 説明 |
+|----------|------|------|
+| `wavira/csi/{device_id}` | Publish | CSI生データ |
+| `wavira/device/{device_id}/status` | Publish | デバイスステータス |
+| `wavira/analysis/{device_id}` | Subscribe | 解析結果 |
+
+## LEDステータスインジケーター
+
+| 状態 | LED | 説明 |
+|------|-----|------|
+| 起動中 | 赤点灯 | ブート処理中 |
+| Wi-Fi待機 | 黄点滅 | Wi-Fi接続待ち |
+| MQTT待機 | 青点滅 | MQTT接続待ち |
+| 接続済み | 緑点灯 | 正常動作中 |
+| データ送信 | 緑パルス | CSIデータ送信時 |
+| エラー | 赤点滅 | エラー発生 |
 
 ## 動作モード
 
@@ -103,13 +128,6 @@ curl -X POST http://localhost:8080/api/v1/admin/devices \
 | ESP-NOW | 別のESP32からパケットを送信 | `CONFIG_CSI_TRIGGER_ESPNOW=y` |
 
 Router Pingモードは単一のESP32で動作するため、開発・テストに便利です。
-
-### 出力モード
-
-| モード | 説明 | 設定 |
-|--------|------|------|
-| HTTP | Wi-Fi経由でサーバーに送信 | `CONFIG_CSI_OUTPUT_HTTP=y` |
-| Serial | UARTで出力（デバッグ用） | `CONFIG_CSI_OUTPUT_SERIAL=y` |
 
 ## トラブルシューティング
 
@@ -123,14 +141,14 @@ E (xxxx) wavira_csi: Failed to connect to Wi-Fi SSID: xxx
 - ルーターが2.4GHz帯に対応しているか確認
 - ESP32とルーターの距離を近づける
 
-### サーバー接続失敗
+### MQTT接続失敗
 
 ```
-E (xxxx) wavira_csi: HTTP POST failed
+E (xxxx) wavira_csi: MQTT connection failed
 ```
 
-- サーバーが起動しているか確認
-- IPアドレスとポートが正しいか確認
+- MQTTブローカーが起動しているか確認
+- URLとポートが正しいか確認
 - ファイアウォール設定を確認
 
 ### スタックオーバーフロー
@@ -149,7 +167,7 @@ E (xxxx) wavira_csi: HTTP POST failed
 ```
 CONFIG_WAVIRA_WIFI_SSID="DevNetwork"
 CONFIG_WAVIRA_WIFI_PASSWORD="devpass123"
-CONFIG_WAVIRA_SERVER_URL="http://192.168.1.100:8080/api/v1/csi"
+CONFIG_WAVIRA_MQTT_BROKER_URL="mqtt://192.168.1.100:1883"
 CONFIG_WAVIRA_DEVICE_ID="esp32-dev-01"
 CONFIG_CSI_TRIGGER_ROUTER=y
 ```
@@ -159,7 +177,7 @@ CONFIG_CSI_TRIGGER_ROUTER=y
 ```
 CONFIG_WAVIRA_WIFI_SSID="ProductionNetwork"
 CONFIG_WAVIRA_WIFI_PASSWORD="securepassword"
-CONFIG_WAVIRA_SERVER_URL="http://wavira-server.local:8080/api/v1/csi"
+CONFIG_WAVIRA_MQTT_BROKER_URL="mqtt://wavira-mqtt.local:1883"
 CONFIG_WAVIRA_DEVICE_ID="esp32-zone-a-01"
 CONFIG_WAVIRA_DEVICE_ZONE="zone-a"
 ```
@@ -179,6 +197,6 @@ csi_recv/
 
 ## 関連ドキュメント
 
-- [Wavira APIサーバー](../../../tools/csi_visualizer/README.md)
+- [Wavira CSI Visualizer](../../../tools/csi_visualizer/README.md)
 - [ESP-IDF ドキュメント](https://docs.espressif.com/projects/esp-idf/)
 - [ESP32 CSI Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/wifi.html#wi-fi-channel-state-information)

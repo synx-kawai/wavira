@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # =============================================================================
+  # MQTT Broker (Mosquitto)
+  # =============================================================================
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: wavira-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # MQTT for ESP32 and services
+      - "9001:9001"   # WebSocket for browser clients
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-W", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # CSI Processor Service
+  # Subscribes to CSI data, performs analysis, publishes results
+  # =============================================================================
+  csi-processor:
+    build:
+      context: ./services
+      dockerfile: Dockerfile
+    container_name: wavira-csi-processor
+    restart: unless-stopped
+    command: ["python", "csi_processor.py", "--mqtt-host", "mosquitto"]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+      - PYTHONUNBUFFERED=1
+
+  # =============================================================================
+  # History Collector Service
+  # Stores CSI data to SQLite, provides REST API for historical queries
+  # =============================================================================
+  history-collector:
+    build:
+      context: ./services
+      dockerfile: Dockerfile
+    container_name: wavira-history-collector
+    restart: unless-stopped
+    command: ["python", "history_collector.py", "--mqtt-host", "mosquitto"]
+    ports:
+      - "8080:8080"   # REST API for historical data
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    volumes:
+      - history_data:/app/data
+    environment:
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+      - DB_PATH=/app/data/history.db
+      - PYTHONUNBUFFERED=1
+
+  # =============================================================================
+  # Dashboard (nginx serving static files)
+  # =============================================================================
+  dashboard:
+    image: nginx:alpine
+    container_name: wavira-dashboard
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./dashboard_multi.html:/usr/share/nginx/html/dashboard_multi.html:ro
+      - ./index.html:/usr/share/nginx/html/index.html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - mosquitto
+      - history-collector
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  history_data:

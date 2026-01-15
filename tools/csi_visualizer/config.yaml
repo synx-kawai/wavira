@@ -54,18 +54,33 @@ alerts:
   enabled: true
   high_crowd_threshold: 0.8  # 収容率80%でアラート
 
-# HTTP API Server設定 (Issue #14)
+# MQTT設定（推奨アーキテクチャ）
+mqtt:
+  host: "localhost"
+  port: 1883
+  websocket_port: 9001
+  topics:
+    csi: "wavira/csi/#"
+    analysis: "wavira/analysis/#"
+    device: "wavira/device/#"
+
+# History Collector REST API設定
+history_api:
+  host: "0.0.0.0"
+  port: 8080
+  db_path: "history.db"
+  retention_days: 7
+
+# DEPRECATED: HTTP API Server設定
+# このセクションはレガシーのHTTPベースアーキテクチャ用です。
+# 新しいデプロイメントではMQTTとdocker-compose.ymlを使用してください。
+# See Issue #29 for deprecation timeline.
 api_server:
   host: "0.0.0.0"
   port: 8080
   api_prefix: "/api/v1"
-  # APIキー（空の場合は認証無効）
-  # 本番環境では必ず設定してください
   api_keys: []
-  # デバイスあたりのレート制限（リクエスト/秒）
   rate_limit_per_second: 100
-  # データベースパス
   db_path: "history.db"
-  # CORS許可オリジン
   cors_origins:
     - "*"

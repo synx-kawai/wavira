@@ -61,12 +61,11 @@ echo -e "${YELLOW}Building...${NC}"
 
 cd "$SCRIPT_DIR"
 
-# Apply settings to sdkconfig
+# Apply settings to sdkconfig (MQTT-based architecture)
 cat > sdkconfig.local << EOF
 CONFIG_WAVIRA_WIFI_SSID="$WIFI_SSID"
 CONFIG_WAVIRA_WIFI_PASSWORD="$WIFI_PASSWORD"
-CONFIG_WAVIRA_SERVER_URL="http://$LOCAL_IP:8080/api/v1/csi"
-CONFIG_WAVIRA_BATCH_ENDPOINT="http://$LOCAL_IP:8080/api/v1/csi/batch"
+CONFIG_WAVIRA_MQTT_BROKER_URL="mqtt://$LOCAL_IP:1883"
 CONFIG_WAVIRA_DEVICE_ID="esp32-001"
 EOF
 
@@ -102,8 +101,8 @@ echo -e "${BLUE}================================${NC}"
 echo -e "${GREEN}  Setup Complete!${NC}"
 echo -e "${BLUE}================================${NC}"
 echo ""
-echo "Start server:  python $WAVIRA_ROOT/tools/csi_visualizer/api_server.py"
-echo "Monitor ESP32: idf.py -p $PORT monitor"
+echo "Start services: cd $WAVIRA_ROOT/tools/csi_visualizer && docker-compose up -d"
+echo "Monitor ESP32:  idf.py -p $PORT monitor"
 echo ""
 
 read -p "Start monitor? [Y/n]: " START

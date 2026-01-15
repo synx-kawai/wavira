@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Multi-Zone Crowd Monitor</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
 <style>
 :root {
     --bg-primary: #0d1117;
@@ -494,12 +495,120 @@ body {
 .history-link:hover {
     text-decoration: underline;
 }
+
+/* Performance Monitor */
+.perf-monitor {
+    position: fixed;
+    top: 60px;
+    right: 16px;
+    background: rgba(22, 27, 34, 0.95);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 12px;
+    z-index: 1001;
+    min-width: 220px;
+    display: none;
+}
+
+.perf-monitor.visible {
+    display: block;
+}
+
+.perf-monitor-title {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--accent-blue);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.perf-monitor-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.perf-monitor-row:last-child {
+    border-bottom: none;
+}
+
+.perf-monitor-label {
+    color: var(--text-secondary);
+}
+
+.perf-monitor-value {
+    font-weight: 600;
+    min-width: 80px;
+    text-align: right;
+}
+
+.perf-monitor-value.good { color: var(--accent-green); }
+.perf-monitor-value.warn { color: var(--accent-yellow); }
+.perf-monitor-value.bad { color: var(--accent-red); }
+
+.perf-toggle {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 12px;
+    z-index: 1002;
+}
+
+.perf-toggle:hover {
+    background: var(--border-color);
+}
 </style>
 </head>
 <body>
 
 <div class="alert-banner" id="alertBanner">
     ⚠️ 混雑エリアがあります
+</div>
+
+<!-- Performance Monitor Toggle -->
+<button class="perf-toggle" id="perfToggleBtn">📊 Perf</button>
+
+<!-- Performance Monitor Panel -->
+<div class="perf-monitor" id="perfMonitor">
+    <div class="perf-monitor-title">
+        <span>Performance Monitor</span>
+        <span id="perfOptimized" style="font-size: 10px; color: var(--accent-yellow);">ORIGINAL</span>
+    </div>
+    <div class="perf-monitor-row">
+        <span class="perf-monitor-label">FPS</span>
+        <span class="perf-monitor-value" id="perfFps">--</span>
+    </div>
+    <div class="perf-monitor-row">
+        <span class="perf-monitor-label">描画時間</span>
+        <span class="perf-monitor-value" id="perfDrawTime">-- ms</span>
+    </div>
+    <div class="perf-monitor-row">
+        <span class="perf-monitor-label">描画回数/秒</span>
+        <span class="perf-monitor-value" id="perfDrawCalls">--</span>
+    </div>
+    <div class="perf-monitor-row">
+        <span class="perf-monitor-label">無駄な描画</span>
+        <span class="perf-monitor-value" id="perfWastedDraws">--</span>
+    </div>
+    <div class="perf-monitor-row">
+        <span class="perf-monitor-label">Long Tasks</span>
+        <span class="perf-monitor-value" id="perfLongTasks">--</span>
+    </div>
+    <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-color);">
+        <button onclick="exportPerfData()" style="width: 100%; padding: 6px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); cursor: pointer;">
+            📋 結果をコピー
+        </button>
+    </div>
 </div>
 
 <div class="app">
@@ -590,57 +699,196 @@ let devices = {};
 let zones = {};
 let deviceHistory = {}; // { deviceId: { rssi: [], amplitude: [], breathRatio: [], timestamps: [] } }
 let deviceCanvases = {}; // { deviceId: { signal: canvas, waveform: canvas } }
-let wsConnection = null;
+let mqttClient = null;
 let hourlyChart = null;
 
-// Connect to WebSocket
-function connect() {
-    // Determine WebSocket URL based on protocol (handles HTTPS/HTTP correctly)
-    let wsUrl;
-    if (window.location.protocol === 'https:') {
-        // Production: Use secure WebSocket through Cloudflare tunnel
-        wsUrl = `wss://${window.location.hostname}/ws`;
-    } else {
-        // Development: Use plain WebSocket (localhost or IP address)
-        const wsHost = window.location.hostname || 'localhost';
-        wsUrl = `ws://${wsHost}:8765`;
+// Get MQTT URL based on environment
+function getMqttUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const mqttParam = urlParams.get('mqtt');
+    if (mqttParam) {
+        return mqttParam.startsWith('ws') ? mqttParam : `ws://${mqttParam}`;
     }
-    const ws = new WebSocket(wsUrl);
-    wsConnection = ws;
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return 'ws://localhost:9001';
+    }
+    return `wss://${hostname}:9001/mqtt`;
+}
 
-    ws.onopen = () => {
+// Get API URL for historical data
+function getApiUrl() {
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return 'http://localhost:8080';
+    }
+    return `${window.location.protocol}//${hostname}/api`;
+}
+
+// Connect to MQTT broker
+function connect() {
+    const mqttUrl = getMqttUrl();
+    console.log('Connecting to MQTT:', mqttUrl);
+
+    mqttClient = mqtt.connect(mqttUrl, {
+        clientId: 'wavira-dashboard-' + Math.random().toString(16).substr(2, 8),
+        keepalive: 30,
+        clean: true,
+        reconnectPeriod: 2000,
+    });
+
+    mqttClient.on('connect', () => {
         connected = true;
         document.getElementById('statusDot').classList.add('connected');
         document.getElementById('statusText').textContent = '接続済み';
-        // Load hourly data on connect
-        loadHourlyData();
-    };
 
-    ws.onclose = () => {
+        // Subscribe to analysis data
+        mqttClient.subscribe('wavira/analysis/#', { qos: 0 });
+        mqttClient.subscribe('wavira/device/+/status', { qos: 1 });
+        console.log('Subscribed to MQTT topics');
+
+        // Load hourly data via REST API
+        loadHourlyData();
+        // Load known devices
+        loadDevices();
+    });
+
+    mqttClient.on('close', () => {
         connected = false;
-        wsConnection = null;
         document.getElementById('statusDot').classList.remove('connected');
         document.getElementById('statusText').textContent = '再接続中...';
-        setTimeout(connect, 2000);
-    };
+    });
 
-    ws.onmessage = (e) => {
+    mqttClient.on('error', (err) => {
+        console.error('MQTT error:', err);
+    });
+
+    mqttClient.on('message', (topic, message) => {
         try {
-            const data = JSON.parse(e.data);
-            if (data.type === 'status') {
-                updateStatus(data);
-            } else if (data.type === 'hourly_summary') {
-                displayHourlySummary(data.data);
-            } else if (data.type === 'history') {
-                // 履歴データを受信してグラフを復元
-                restoreHistoryData(data);
-            } else if (data.device_id) {
-                updateDevice(data);
+            const data = JSON.parse(message.toString());
+
+            // Handle analysis data (main device data)
+            if (topic.startsWith('wavira/analysis/') && !topic.endsWith('/presence') && !topic.endsWith('/breathing')) {
+                // Convert MQTT format to expected format
+                const deviceData = {
+                    device_id: data.device_id,
+                    device_name: data.device_id,
+                    zone: 'default',
+                    color: getDeviceColor(data.device_id),
+                    rssi: data.rssi,
+                    amps: data.amps || [],
+                    breath: {
+                        present: data.present,
+                        breath_ratio: data.breath_ratio,
+                        breathing: data.breathing,
+                        breath_rate: data.breathing_rate
+                    }
+                };
+                updateDevice(deviceData);
+            }
+            // Handle device status
+            else if (topic.startsWith('wavira/device/') && topic.endsWith('/status')) {
+                const deviceId = topic.split('/')[2];
+                console.log('Device status:', deviceId, data);
             }
         } catch (err) {
-            console.error('Parse error:', err);
+            console.debug('Parse error:', err);
         }
-    };
+    });
+}
+
+// Get color for device based on index
+function getDeviceColor(deviceId) {
+    const colors = ['#3fb950', '#58a6ff', '#d29922', '#f85149', '#a371f7', '#79c0ff'];
+    const index = Object.keys(devices).indexOf(deviceId);
+    return colors[index >= 0 ? index % colors.length : Object.keys(devices).length % colors.length];
+}
+
+// Load devices from REST API
+async function loadDevices() {
+    try {
+        const response = await fetch(`${getApiUrl()}/api/v1/devices`);
+        if (!response.ok) return;
+        const deviceList = await response.json();
+        for (const dev of deviceList) {
+            if (!devices[dev.device_id]) {
+                devices[dev.device_id] = {
+                    id: dev.device_id,
+                    name: dev.device_id,
+                    zone: dev.zone || 'default',
+                    color: getDeviceColor(dev.device_id),
+                    connected: dev.online,
+                    rssi: dev.rssi
+                };
+            }
+            // Load history for this device
+            await loadDeviceHistory(dev.device_id);
+        }
+        ensureDeviceGraphCards();
+        updateSummary();
+
+        // Trigger initial draw for OPTIMIZED mode
+        if (USE_OPTIMIZED) {
+            Object.keys(deviceCanvases).forEach(markDeviceDirty);
+            scheduleRedraw();
+        }
+    } catch (e) {
+        console.warn('Failed to load devices:', e);
+    }
+}
+
+// Load recent history for a device from REST API
+async function loadDeviceHistory(deviceId) {
+    try {
+        // Load last 120 records (2 minutes at ~1 sample/sec)
+        const response = await fetch(`${getApiUrl()}/api/v1/history/${deviceId}?limit=${HISTORY_LENGTH}`);
+        if (!response.ok) return;
+        const historyData = await response.json();
+
+        if (!historyData || historyData.length === 0) return;
+
+        console.log(`Loaded ${historyData.length} history entries for ${deviceId}`);
+
+        // Initialize history arrays
+        if (!deviceHistory[deviceId]) {
+            deviceHistory[deviceId] = {
+                rssi: [],
+                amplitude: [],
+                breathRatio: [],
+                timestamps: []
+            };
+        }
+
+        const hist = deviceHistory[deviceId];
+
+        // Clear and restore from server data
+        hist.rssi = [];
+        hist.amplitude = [];
+        hist.breathRatio = [];
+        hist.timestamps = [];
+
+        // historyData is already sorted by timestamp ASC from the API
+        historyData.forEach(entry => {
+            hist.rssi.push(entry.rssi || -100);
+            hist.amplitude.push(entry.avg_amplitude || 0);
+            hist.breathRatio.push((entry.breath_ratio || 0) * 100);
+            hist.timestamps.push(entry.timestamp * 1000); // Convert to milliseconds
+        });
+
+        // Update device with latest data
+        if (historyData.length > 0) {
+            const lastEntry = historyData[historyData.length - 1];
+            devices[deviceId].rssi = lastEntry.rssi;
+            devices[deviceId].breath = {
+                present: lastEntry.present,
+                breath_ratio: lastEntry.breath_ratio,
+                breathing: lastEntry.breathing
+            };
+            devices[deviceId].lastUpdate = Date.now();
+        }
+    } catch (e) {
+        console.warn(`Failed to load history for ${deviceId}:`, e);
+    }
 }
 
 // Update status from server
@@ -724,8 +972,13 @@ function restoreHistoryData(historyMsg) {
     updateSummary();
 
     // Force redraw graphs
-    drawSignalGraph(deviceId);
-    drawWaveform(deviceId);
+    if (USE_OPTIMIZED) {
+        markDeviceDirty(deviceId);
+        scheduleRedraw();
+    } else {
+        drawSignalGraph(deviceId);
+        drawWaveform(deviceId);
+    }
 }
 
 // Update individual device data
@@ -791,18 +1044,35 @@ function updateDevice(data) {
     updateSummary();
     updateFloorMap();
     ensureDeviceGraphCards();
+
+    // Mark device for redraw AFTER canvas is created (optimized mode)
+    if (USE_OPTIMIZED && deviceCanvases[deviceId]) {
+        markDeviceDirty(deviceId);
+        scheduleRedraw();
+    }
 }
 
 // Ensure device graph cards exist
 function ensureDeviceGraphCards() {
     const grid = document.getElementById('deviceGraphsGrid');
+    let newCardsCreated = false;
 
     Object.values(devices).forEach(dev => {
         if (!document.getElementById(`graph-card-${dev.id}`)) {
             createDeviceGraphCard(dev, grid);
+            newCardsCreated = true;
+            // Mark newly created device for redraw in OPTIMIZED mode
+            if (USE_OPTIMIZED && deviceCanvases[dev.id]) {
+                markDeviceDirty(dev.id);
+            }
         }
         updateDeviceGraphCard(dev);
     });
+
+    // Schedule redraw if new cards were created
+    if (USE_OPTIMIZED && newCardsCreated) {
+        scheduleRedraw();
+    }
 }
 
 // Create device graph card
@@ -863,6 +1133,11 @@ function createDeviceGraphCard(dev, container) {
     // Set canvas size
     resizeCanvas(signalCanvas);
     resizeCanvas(waveformCanvas);
+
+    // Trigger initial draw for this device in OPTIMIZED mode
+    if (USE_OPTIMIZED) {
+        markDeviceDirty(dev.id);
+    }
 }
 
 // Resize canvas to match container
@@ -1138,13 +1413,365 @@ function updateFloorMap() {
     });
 }
 
-// Animation loop for graphs
-function animateGraphs() {
+// ============================================
+// Performance Monitoring
+// ============================================
+const perfStats = {
+    fps: 0,
+    drawTime: 0,
+    drawCalls: 0,
+    wastedDraws: 0,
+    longTasks: 0,
+    lastFrameTime: 0,
+    frameCount: 0,
+    drawCallCount: 0,
+    wastedDrawCount: 0,
+    lastSecond: 0,
+    drawTimes: [],
+    isOptimized: false,
+    history: []  // 履歴を保持
+};
+
+// Long Task Observer
+if (typeof PerformanceObserver !== 'undefined') {
+    try {
+        const longTaskObserver = new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+                if (entry.duration > 50) {
+                    perfStats.longTasks++;
+                }
+            }
+        });
+        longTaskObserver.observe({ entryTypes: ['longtask'] });
+    } catch (e) {
+        console.log('Long task observer not supported');
+    }
+}
+
+function togglePerfMonitor() {
+    const monitor = document.getElementById('perfMonitor');
+    monitor.classList.toggle('visible');
+}
+
+function updatePerfDisplay() {
+    const now = performance.now();
+
+    // Calculate FPS
+    perfStats.frameCount++;
+    if (now - perfStats.lastSecond >= 1000) {
+        perfStats.fps = perfStats.frameCount;
+        perfStats.drawCalls = perfStats.drawCallCount;
+        perfStats.wastedDraws = perfStats.wastedDrawCount;
+
+        // Average draw time
+        if (perfStats.drawTimes.length > 0) {
+            perfStats.drawTime = perfStats.drawTimes.reduce((a, b) => a + b, 0) / perfStats.drawTimes.length;
+        }
+
+        // Reset counters
+        perfStats.frameCount = 0;
+        perfStats.drawCallCount = 0;
+        perfStats.wastedDrawCount = 0;
+        perfStats.drawTimes = [];
+        perfStats.lastSecond = now;
+
+        // Store history
+        perfStats.history.push({
+            timestamp: Date.now(),
+            fps: perfStats.fps,
+            drawTime: perfStats.drawTime,
+            drawCalls: perfStats.drawCalls,
+            wastedDraws: perfStats.wastedDraws,
+            longTasks: perfStats.longTasks
+        });
+
+        // Keep only last 60 seconds
+        if (perfStats.history.length > 60) {
+            perfStats.history.shift();
+        }
+
+        // Update display
+        updatePerfUI();
+    }
+}
+
+function updatePerfUI() {
+    const fpsEl = document.getElementById('perfFps');
+    const drawTimeEl = document.getElementById('perfDrawTime');
+    const drawCallsEl = document.getElementById('perfDrawCalls');
+    const wastedDrawsEl = document.getElementById('perfWastedDraws');
+    const longTasksEl = document.getElementById('perfLongTasks');
+
+    // FPS
+    fpsEl.textContent = perfStats.fps;
+    fpsEl.className = 'perf-monitor-value ' + (perfStats.fps >= 55 ? 'good' : perfStats.fps >= 30 ? 'warn' : 'bad');
+
+    // Draw time
+    drawTimeEl.textContent = perfStats.drawTime.toFixed(2) + ' ms';
+    drawTimeEl.className = 'perf-monitor-value ' + (perfStats.drawTime < 5 ? 'good' : perfStats.drawTime < 16 ? 'warn' : 'bad');
+
+    // Draw calls
+    drawCallsEl.textContent = perfStats.drawCalls;
+    drawCallsEl.className = 'perf-monitor-value ' + (perfStats.drawCalls < 30 ? 'good' : perfStats.drawCalls < 100 ? 'warn' : 'bad');
+
+    // Wasted draws (描画しても変化がなかったもの)
+    wastedDrawsEl.textContent = perfStats.wastedDraws;
+    wastedDrawsEl.className = 'perf-monitor-value ' + (perfStats.wastedDraws < 10 ? 'good' : perfStats.wastedDraws < 50 ? 'warn' : 'bad');
+
+    // Long tasks
+    longTasksEl.textContent = perfStats.longTasks;
+    longTasksEl.className = 'perf-monitor-value ' + (perfStats.longTasks === 0 ? 'good' : perfStats.longTasks < 5 ? 'warn' : 'bad');
+}
+
+function exportPerfData() {
+    // Calculate averages from history
+    if (perfStats.history.length === 0) {
+        alert('データがありません。しばらく待ってから再試行してください。');
+        return;
+    }
+
+    const avgFps = perfStats.history.reduce((a, b) => a + b.fps, 0) / perfStats.history.length;
+    const avgDrawTime = perfStats.history.reduce((a, b) => a + b.drawTime, 0) / perfStats.history.length;
+    const avgDrawCalls = perfStats.history.reduce((a, b) => a + b.drawCalls, 0) / perfStats.history.length;
+    const avgWastedDraws = perfStats.history.reduce((a, b) => a + b.wastedDraws, 0) / perfStats.history.length;
+    const totalLongTasks = perfStats.longTasks;
+
+    const result = `## Performance Results (${perfStats.isOptimized ? 'OPTIMIZED' : 'ORIGINAL'})
+測定期間: ${perfStats.history.length}秒
+デバイス数: ${Object.keys(devices).length}
+
+| 指標 | 平均値 |
+|------|--------|
+| FPS | ${avgFps.toFixed(1)} |
+| 描画時間 | ${avgDrawTime.toFixed(2)} ms |
+| 描画回数/秒 | ${avgDrawCalls.toFixed(0)} |
+| 無駄な描画/秒 | ${avgWastedDraws.toFixed(0)} |
+| Long Tasks | ${totalLongTasks} |
+`;
+
+    navigator.clipboard.writeText(result).then(() => {
+        alert('結果をクリップボードにコピーしました');
+    });
+}
+
+// Track last data hash for each device to detect actual changes
+const lastDataHash = {};
+
+function getDataHash(deviceId) {
+    const hist = deviceHistory[deviceId];
+    const dev = devices[deviceId];
+    if (!hist || !dev) return '';
+    return `${hist.timestamps.length}-${dev.rssi}-${dev.breath?.breath_ratio}`;
+}
+
+// Check if optimized mode is enabled via URL parameter
+const USE_OPTIMIZED = new URLSearchParams(window.location.search).get('optimized') === 'true';
+
+// Dirty flags for optimized rendering
+const dirtyDevices = new Set();
+
+// Mark device as needing redraw (called when data updates)
+function markDeviceDirty(deviceId) {
+    dirtyDevices.add(deviceId);
+}
+
+// ============================================
+// ORIGINAL Animation Loop (for comparison)
+// ============================================
+function animateGraphsOriginal() {
+    const frameStart = performance.now();
+
     Object.keys(deviceCanvases).forEach(deviceId => {
+        const currentHash = getDataHash(deviceId);
+        const hasChange = currentHash !== lastDataHash[deviceId];
+
         drawSignalGraph(deviceId);
         drawWaveform(deviceId);
+        perfStats.drawCallCount += 2;
+
+        if (!hasChange) {
+            perfStats.wastedDrawCount += 2;
+        }
+        lastDataHash[deviceId] = currentHash;
     });
-    requestAnimationFrame(animateGraphs);
+
+    const frameEnd = performance.now();
+    perfStats.drawTimes.push(frameEnd - frameStart);
+
+    updatePerfDisplay();
+    requestAnimationFrame(animateGraphsOriginal);
+}
+
+// ============================================
+// OPTIMIZED Animation Loop
+// ============================================
+let animationScheduled = false;
+
+function scheduleRedraw() {
+    if (!animationScheduled && dirtyDevices.size > 0) {
+        animationScheduled = true;
+        requestAnimationFrame(animateGraphsOptimized);
+    }
+}
+
+function animateGraphsOptimized() {
+    animationScheduled = false;
+    const frameStart = performance.now();
+
+    // Only redraw dirty devices
+    dirtyDevices.forEach(deviceId => {
+        if (deviceCanvases[deviceId]) {
+            drawSignalGraphOptimized(deviceId);
+            drawWaveformOptimized(deviceId);
+            perfStats.drawCallCount += 2;
+        }
+    });
+    dirtyDevices.clear();
+
+    const frameEnd = performance.now();
+    if (frameEnd - frameStart > 0) {
+        perfStats.drawTimes.push(frameEnd - frameStart);
+    }
+
+    updatePerfDisplay();
+
+    // Schedule next frame only if there's more data
+    if (dirtyDevices.size > 0) {
+        scheduleRedraw();
+    }
+}
+
+// Optimized drawing with path caching
+function drawSignalGraphOptimized(deviceId) {
+    const canvasInfo = deviceCanvases[deviceId];
+    const hist = deviceHistory[deviceId];
+    if (!canvasInfo || !hist || hist.timestamps.length < 2) return;
+
+    const ctx = canvasInfo.signalCtx;
+    const canvas = canvasInfo.signal;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Use a single path for grid
+    ctx.fillStyle = '#21262d';
+    ctx.fillRect(0, 0, w, h);
+
+    // Draw grid more efficiently
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 1; i < 4; i++) {
+        const y = (h / 4) * i;
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+    }
+    ctx.stroke();
+
+    const padding = 5;
+    const plotW = w - padding * 2;
+    const plotH = h - padding * 2;
+    const dataLen = hist.rssi.length;
+    const step = Math.max(1, Math.floor(dataLen / plotW)); // Downsample if needed
+
+    // Draw all lines with downsampling for performance
+    const drawLineOptimized = (data, color, minVal, maxVal) => {
+        if (data.length < 2) return;
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+
+        let first = true;
+        for (let i = 0; i < data.length; i += step) {
+            const x = padding + (i / (HISTORY_LENGTH - 1)) * plotW;
+            const normalized = (data[i] - minVal) / (maxVal - minVal);
+            const y = padding + plotH - normalized * plotH;
+
+            if (first) {
+                ctx.moveTo(x, y);
+                first = false;
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+        ctx.stroke();
+    };
+
+    // RSSI
+    drawLineOptimized(hist.rssi, '#58a6ff', -100, -30);
+
+    // Amplitude
+    const maxAmp = Math.max(...hist.amplitude, 100);
+    drawLineOptimized(hist.amplitude, '#3fb950', 0, maxAmp);
+
+    // Breath ratio
+    drawLineOptimized(hist.breathRatio, '#d29922', 0, 100);
+}
+
+function drawWaveformOptimized(deviceId) {
+    const canvasInfo = deviceCanvases[deviceId];
+    const dev = devices[deviceId];
+    if (!canvasInfo || !dev?.amps) return;
+
+    const ctx = canvasInfo.waveformCtx;
+    const canvas = canvasInfo.waveform;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    ctx.fillStyle = '#21262d';
+    ctx.fillRect(0, 0, w, h);
+
+    const amps = dev.amps;
+    if (amps.length < 2) return;
+
+    const maxAmp = Math.max(...amps, 1);
+    const isPresent = dev.breath?.present;
+
+    ctx.strokeStyle = isPresent ? '#3fb950' : '#58a6ff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+
+    const padding = 5;
+    const plotW = w - padding * 2;
+    const plotH = h - padding * 2;
+
+    for (let i = 0; i < amps.length; i++) {
+        const x = padding + (i / (amps.length - 1)) * plotW;
+        const y = padding + plotH - (amps[i] / maxAmp) * plotH;
+
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    if (isPresent) {
+        ctx.fillStyle = 'rgba(63, 185, 80, 0.3)';
+        ctx.fillRect(w - 30, 5, 25, 15);
+        ctx.fillStyle = '#3fb950';
+        ctx.font = '10px sans-serif';
+        ctx.fillText('👤', w - 25, 16);
+    }
+}
+
+// Select which animation loop to use
+function animateGraphs() {
+    if (USE_OPTIMIZED) {
+        perfStats.isOptimized = true;
+        document.getElementById('perfOptimized').textContent = 'OPTIMIZED';
+        document.getElementById('perfOptimized').style.color = 'var(--accent-green)';
+        // Initial draw for all devices
+        Object.keys(deviceCanvases).forEach(markDeviceDirty);
+        scheduleRedraw();
+        // Set up periodic display update for stats
+        setInterval(() => {
+            updatePerfDisplay();
+        }, 100);
+    } else {
+        perfStats.isOptimized = false;
+        document.getElementById('perfOptimized').textContent = 'ORIGINAL';
+        document.getElementById('perfOptimized').style.color = 'var(--accent-yellow)';
+        animateGraphsOriginal();
+    }
 }
 
 // Handle window resize
@@ -1153,17 +1780,27 @@ window.addEventListener('resize', () => {
         resizeCanvas(info.signal);
         resizeCanvas(info.waveform);
     });
+    // Mark all devices dirty on resize
+    if (USE_OPTIMIZED) {
+        Object.keys(deviceCanvases).forEach(markDeviceDirty);
+        scheduleRedraw();
+    }
 });
 
-// Load hourly data from server
-function loadHourlyData() {
-    if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) return;
-
+// Load hourly data from REST API
+async function loadHourlyData() {
     const hours = parseInt(document.getElementById('hourlyPeriod').value);
-    wsConnection.send(JSON.stringify({
-        type: 'get_hourly_summary',
-        hours: hours
-    }));
+    try {
+        const response = await fetch(`${getApiUrl()}/api/v1/hourly?hours=${hours}`);
+        if (!response.ok) {
+            console.warn('Failed to load hourly data:', response.status);
+            return;
+        }
+        const data = await response.json();
+        displayHourlySummary(data);
+    } catch (e) {
+        console.warn('Failed to load hourly data:', e);
+    }
 }
 
 // Display hourly summary chart
@@ -1181,17 +1818,18 @@ function displayHourlySummary(data) {
     const selectedPeriod = parseInt(document.getElementById('hourlyPeriod').value);
     const currentHour = new Date().getHours();
 
-    // Group by hour (convert UTC from server to local time)
+    // Group by hour (server returns UTC, convert to local time)
     const hourlyData = {};
     for (const row of data) {
-        // Parse UTC datetime and convert to local hour
-        const utcDateStr = row.hour; // Format: "2025-12-25 02:00"
-        const utcDate = new Date(utcDateStr + ' UTC');
+        // Parse datetime - format: "2025-12-25 06:00" (UTC)
+        // Convert to local timezone
+        const utcDate = new Date(row.hour.replace(' ', 'T') + ':00Z');
         const localHour = utcDate.getHours().toString().padStart(2, '0') + ':00';
         if (!hourlyData[localHour]) {
             hourlyData[localHour] = [];
         }
-        hourlyData[localHour].push(row.avg_crowd_level * 100);
+        // Use presence_pct which is already 0-100
+        hourlyData[localHour].push(row.presence_pct || 0);
     }
 
     // Calculate which hours to display based on selected period
@@ -1300,6 +1938,7 @@ setInterval(() => {
 }, 60000);
 
 // Initialize
+document.getElementById('perfToggleBtn').addEventListener('click', togglePerfMonitor);
 connect();
 animateGraphs();
 </script>

@@ -1,0 +1,27 @@
+[Unit]
+Description=Wavira CSI Processor Service
+Documentation=https://github.com/yourusername/wavira
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/wavira
+ExecStart=/opt/wavira/venv/bin/python /opt/wavira/services/csi_processor.py --mqtt-host localhost
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+Environment=MQTT_HOST=localhost
+Environment=MQTT_PORT=1883
+
+# Resource limits
+MemoryLimit=256M
+
+[Install]
+WantedBy=multi-user.target

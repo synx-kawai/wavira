@@ -1,0 +1,36 @@
+# Wavira Project Progress Log
+# Long-running agent progress tracking file
+# Updated: 2026-01-15
+
+## Current Status
+- All features initialized as "failing" - ready for incremental work
+- Priority order: High > Medium > Low
+
+## Session History
+
+### Session 1 (2026-01-15)
+- Reviewed and merged PR#36 (gesture recognition with 3D CNN)
+- Created 11 new GitHub issues for remaining tasks
+- Initialized long-running agent harness (features.json, init.sh, claude-progress.txt)
+- Next: Start with #47 (削除されたコンポーネントの整理)
+
+## Feature Status Overview
+| ID | Issue | Title | Priority | Status |
+|----|-------|-------|----------|--------|
+| cleanup-deleted-components | #47 | 削除されたコンポーネントの整理 | high | failing |
+| test-coverage | #38 | テストカバレッジ拡充 | high | failing |
+| security-hardening | #40 | セキュリティ強化 | high | failing |
+| readme-completion | #37 | README.md完成 | medium | failing |
+| cicd-enhancement | #39 | CI/CD強化 | medium | failing |
+| developer-docs | #41 | 開発者ドキュメント | medium | failing |
+| data-validation | #42 | データ検証 | medium | failing |
+| performance-optimization | #43 | モデル最適化 | medium | failing |
+| firmware-ota | #44 | ファームウェアOTA | low | failing |
+| kubernetes-deploy | #45 | Kubernetesデプロイ | low | failing |
+| breathing-detection | #46 | 呼吸/存在検知 | low | failing |
+
+## Notes for Next Session
+- Run `./init.sh` to verify environment
+- Check `features.json` for current feature status
+- Read this file for context on previous work
+- Commit progress with descriptive messages

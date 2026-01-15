@@ -1,5 +1,11 @@
 # Wavira Test Server - Development Environment
 # Deploys the CSI API server to an LXC container
+#
+# DEPRECATED: This Terraform configuration is for the legacy HTTP-based architecture.
+# The project has migrated to MQTT-based architecture using Docker Compose.
+# See: tools/csi_visualizer/docker-compose.yml
+# For new deployments, use Docker Compose instead.
+# This file will be removed in a future version (see Issue #29).
 
 terraform {
   required_version = ">= 1.0.0"

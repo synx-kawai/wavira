@@ -1,0 +1,17 @@
+# Wavira CSI Services Dependencies
+
+# MQTT client
+paho-mqtt>=2.0.0
+
+# REST API framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Data processing
+numpy>=1.24.0
+
+# Database
+# SQLite is built-in, no additional package needed
+
+# Type hints
+typing-extensions>=4.9.0

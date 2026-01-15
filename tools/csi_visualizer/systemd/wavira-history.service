@@ -1,0 +1,29 @@
+[Unit]
+Description=Wavira History Collector Service
+Documentation=https://github.com/yourusername/wavira
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/wavira
+ExecStart=/opt/wavira/venv/bin/python /opt/wavira/services/history_collector.py --mqtt-host localhost --api-port 8080 --db-path /opt/wavira/data/history.db
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+Environment=MQTT_HOST=localhost
+Environment=MQTT_PORT=1883
+Environment=API_PORT=8080
+Environment=DB_PATH=/opt/wavira/data/history.db
+
+# Resource limits
+MemoryLimit=512M
+
+[Install]
+WantedBy=multi-user.target
