@@ -310,12 +310,26 @@ class HistoryDatabase:
 
 
 class MQTTCollector:
-    """MQTT subscriber for collecting data."""
+    """
+    MQTT subscriber for collecting data and managing device status.
 
-    def __init__(self, mqtt_host: str, mqtt_port: int, db: HistoryDatabase):
+    Issue #24: オンライン/オフライン検知のMQTT対応
+    - Handles Last Will messages for offline detection
+    - Tracks device online/offline status in real-time
+    - Publishes status updates for dashboard notifications
+    """
+
+    def __init__(
+        self,
+        mqtt_host: str,
+        mqtt_port: int,
+        db: HistoryDatabase,
+        dm: Optional[DeviceManager] = None,
+    ):
         self.mqtt_host = mqtt_host
         self.mqtt_port = mqtt_port
         self.db = db
+        self.device_manager = dm
         self.running = False
 
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -330,8 +344,10 @@ class MQTTCollector:
             # Subscribe to all wavira topics
             client.subscribe("wavira/analysis/#", qos=0)
             client.subscribe("wavira/csi/#", qos=0)
-            client.subscribe("wavira/device/#", qos=1)
-            logger.info("Subscribed to wavira/# topics")
+            # Device status topics (QoS 1 for reliability)
+            client.subscribe("wavira/device/+/status", qos=1)
+            client.subscribe("wavira/device/+/will", qos=1)
+            logger.info("Subscribed to wavira/# topics including device status")
         else:
             logger.error(f"MQTT connection failed: {reason_code}")
 
@@ -344,6 +360,11 @@ class MQTTCollector:
         try:
             topic = msg.topic
             payload = json.loads(msg.payload.decode())
+
+            # Handle device status messages (Issue #24)
+            if "/status" in topic or "/will" in topic:
+                self._handle_device_status(topic, payload)
+                return
 
             # Store analysis results
             if topic.startswith("wavira/analysis/") and not topic.endswith("/presence") and not topic.endswith("/breathing"):
@@ -359,11 +380,84 @@ class MQTTCollector:
                         breath_ratio=payload.get("breath_ratio", 0),
                         breathing=payload.get("breathing", False),
                     )
+                    # Update device last_seen on any data received
+                    if self.device_manager:
+                        self.device_manager.update_device_status(
+                            device_id,
+                            online=True,
+                            last_seen=time.time(),
+                        )
 
         except json.JSONDecodeError:
             pass
         except Exception as e:
             logger.error(f"Error processing message: {e}")
+
+    def _handle_device_status(self, topic: str, payload: dict):
+        """
+        Handle device online/offline status messages.
+
+        Topics:
+            wavira/device/{device_id}/status - Device announces online
+            wavira/device/{device_id}/will - Last Will (device offline)
+        """
+        # Extract device_id from topic
+        # Format: wavira/device/{device_id}/status or wavira/device/{device_id}/will
+        parts = topic.split("/")
+        if len(parts) < 4:
+            return
+
+        device_id = parts[2]
+        message_type = parts[3]  # 'status' or 'will'
+        status = payload.get("status", "unknown")
+        timestamp = payload.get("timestamp", time.time())
+
+        if message_type == "status":
+            # Device announced its status
+            is_online = status == "online"
+            logger.info(f"Device {device_id} status: {status}")
+
+            if self.device_manager:
+                self.device_manager.update_device_status(
+                    device_id,
+                    online=is_online,
+                    last_seen=timestamp if is_online else None,
+                )
+
+            # Publish status update for dashboard
+            self._publish_status_update(device_id, is_online, timestamp)
+
+        elif message_type == "will":
+            # Last Will message - device went offline unexpectedly
+            logger.warning(f"Device {device_id} offline (Last Will received)")
+
+            if self.device_manager:
+                self.device_manager.update_device_status(
+                    device_id,
+                    online=False,
+                    last_seen=timestamp,
+                )
+
+            # Publish offline notification
+            self._publish_status_update(device_id, False, timestamp)
+
+    def _publish_status_update(self, device_id: str, online: bool, timestamp: float):
+        """Publish device status update for real-time dashboard notifications."""
+        status_payload = json.dumps({
+            "device_id": device_id,
+            "online": online,
+            "status": "online" if online else "offline",
+            "timestamp": timestamp,
+            "source": "mqtt_will" if not online else "mqtt_status",
+        })
+
+        # Publish to a topic that dashboards can subscribe to
+        self.client.publish(
+            f"wavira/status/{device_id}",
+            status_payload,
+            qos=1,
+            retain=True,  # Retain so new subscribers get current status
+        )
 
     def start(self):
         """Start MQTT collector in background thread."""
@@ -459,7 +553,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Device manager initialized: {devices_db_path}")
 
     db = HistoryDatabase(db_path)
-    mqtt_collector = MQTTCollector(mqtt_host, mqtt_port, db)
+    mqtt_collector = MQTTCollector(mqtt_host, mqtt_port, db, device_manager)
     mqtt_collector.start()
 
     # Start cleanup task
@@ -745,6 +839,92 @@ async def migrate_devices_to_mqtt(
                 "mqtt_credentials": creds.to_dict(include_password=True),
             }
             for device_id, creds in results
+        ],
+    }
+
+
+# =============================================================================
+# Device Status API (Issue #24)
+# =============================================================================
+
+
+@app.get("/api/v1/status")
+async def get_all_device_status(
+    _api_key: str = Depends(get_api_key_auth),
+):
+    """
+    Get online/offline status of all devices.
+
+    Returns real-time device status based on MQTT Last Will mechanism.
+    """
+    if not device_manager:
+        raise HTTPException(status_code=503, detail="Device manager not initialized")
+
+    devices = device_manager.list_devices()
+    return {
+        "timestamp": time.time(),
+        "devices": [
+            {
+                "device_id": d.device_id,
+                "online": d.online,
+                "last_seen": d.last_seen,
+                "zone": d.zone,
+            }
+            for d in devices
+        ],
+        "summary": {
+            "total": len(devices),
+            "online": sum(1 for d in devices if d.online),
+            "offline": sum(1 for d in devices if not d.online),
+        },
+    }
+
+
+@app.get("/api/v1/status/{device_id}")
+async def get_device_status(
+    device_id: str = Path(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$"),
+    _api_key: str = Depends(get_api_key_auth),
+):
+    """
+    Get online/offline status of a specific device.
+    """
+    if not device_manager:
+        raise HTTPException(status_code=503, detail="Device manager not initialized")
+
+    device_id = InputValidator.device_id(device_id)
+    device = device_manager.get_device(device_id)
+
+    if not device:
+        raise HTTPException(status_code=404, detail=f"Device not found: {device_id}")
+
+    return {
+        "device_id": device.device_id,
+        "online": device.online,
+        "last_seen": device.last_seen,
+        "zone": device.zone,
+        "has_mqtt_credentials": device.has_mqtt_credentials,
+    }
+
+
+@app.get("/api/v1/status/online")
+async def get_online_devices(
+    _api_key: str = Depends(get_api_key_auth),
+):
+    """Get list of currently online devices."""
+    if not device_manager:
+        raise HTTPException(status_code=503, detail="Device manager not initialized")
+
+    devices = device_manager.list_devices(online_only=True)
+    return {
+        "timestamp": time.time(),
+        "count": len(devices),
+        "devices": [
+            {
+                "device_id": d.device_id,
+                "last_seen": d.last_seen,
+                "zone": d.zone,
+            }
+            for d in devices
         ],
     }
 
