@@ -1,0 +1,85 @@
+---
+# Wavira Ingress Configuration
+# Exposes the History Collector REST API and WebSocket endpoints
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wavira-ingress
+  namespace: wavira
+  labels:
+    app.kubernetes.io/name: wavira
+    app.kubernetes.io/component: ingress
+  annotations:
+    # NGINX Ingress Controller annotations
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Enable WebSocket support for MQTT over WebSocket
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$request_uri"
+    # Rate limiting (optional)
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-connections: "100"
+    # SSL redirect (uncomment for production)
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # kubernetes.io/ingress.class: nginx
+spec:
+  ingressClassName: nginx
+  # TLS Configuration (uncomment for production)
+  # tls:
+  #   - hosts:
+  #       - wavira.example.com
+  #     secretName: wavira-tls
+  rules:
+    # REST API endpoint
+    - host: wavira.example.com
+      http:
+        paths:
+          # History Collector REST API
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: history-collector
+                port:
+                  number: 8080
+          # Health check endpoint (no auth required)
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: history-collector
+                port:
+                  number: 8080
+
+---
+# WebSocket Ingress for MQTT over WebSocket
+# Separate ingress for WebSocket traffic to handle upgrades properly
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wavira-websocket-ingress
+  namespace: wavira
+  labels:
+    app.kubernetes.io/name: wavira
+    app.kubernetes.io/component: ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    # WebSocket upgrade headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: mqtt.wavira.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mosquitto
+                port:
+                  number: 9001

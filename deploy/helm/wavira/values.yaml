@@ -1,0 +1,233 @@
+# Default values for Wavira Helm chart
+# This is a YAML-formatted file.
+
+# Global settings
+global:
+  # Image pull secrets for private registries
+  imagePullSecrets: []
+
+# Namespace settings
+namespace:
+  create: true
+  name: wavira
+
+# =============================================================================
+# History Collector Service
+# =============================================================================
+historyCollector:
+  enabled: true
+
+  replicaCount: 1
+
+  image:
+    repository: wavira/history-collector
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+
+  # Environment variables
+  env:
+    LOG_LEVEL: "INFO"
+    DATA_RETENTION_DAYS: "7"
+
+  # Health checks
+  livenessProbe:
+    enabled: true
+    path: /api/v1/health
+    initialDelaySeconds: 10
+    periodSeconds: 30
+
+  readinessProbe:
+    enabled: true
+    path: /api/v1/health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+
+  # Pod annotations
+  podAnnotations: {}
+
+  # Node selector
+  nodeSelector: {}
+
+  # Tolerations
+  tolerations: []
+
+  # Affinity
+  affinity: {}
+
+# =============================================================================
+# Mosquitto MQTT Broker
+# =============================================================================
+mosquitto:
+  enabled: true
+
+  # Use external MQTT broker instead of deploying one
+  external: false
+  # If external: true, set these values
+  externalHost: ""
+  externalPort: 1883
+  externalWebsocketPort: 9001
+
+  replicaCount: 1
+
+  image:
+    repository: eclipse-mosquitto
+    tag: "2"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    mqttPort: 1883
+    websocketPort: 9001
+
+  # NodePort service for external access (optional)
+  nodePort:
+    enabled: false
+    mqttNodePort: 31883
+    websocketNodePort: 31901
+
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+  persistence:
+    enabled: true
+    size: 500Mi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+
+  # Mosquitto configuration
+  config:
+    allowAnonymous: true
+    # Enable authentication by setting to false and providing passwords
+    # passwords: |
+    #   user1:$7$hash...
+
+  # Security context
+  securityContext:
+    runAsUser: 1883
+    runAsGroup: 1883
+
+  # Pod annotations
+  podAnnotations: {}
+
+  # Node selector
+  nodeSelector: {}
+
+  # Tolerations
+  tolerations: []
+
+  # Affinity
+  affinity: {}
+
+# =============================================================================
+# Ingress Configuration
+# =============================================================================
+ingress:
+  enabled: true
+
+  className: nginx
+
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+
+  # REST API ingress
+  api:
+    enabled: true
+    host: wavira.example.com
+    path: /api
+    pathType: Prefix
+    tls:
+      enabled: false
+      secretName: wavira-tls
+
+  # WebSocket ingress for MQTT
+  websocket:
+    enabled: true
+    host: mqtt.wavira.example.com
+    path: /
+    pathType: Prefix
+    tls:
+      enabled: false
+      secretName: wavira-mqtt-tls
+
+# =============================================================================
+# Security Configuration
+# =============================================================================
+security:
+  # API key for REST API authentication
+  apiKey: ""
+  # Set to true to require API key for all endpoints except health
+  requireApiKey: false
+
+  # Rate limiting
+  rateLimit:
+    enabled: true
+    requests: 100
+    window: 60
+
+  # CORS settings
+  corsOrigins: "*"
+
+  # Security headers
+  addSecurityHeaders: true
+
+# =============================================================================
+# ConfigMap Settings
+# =============================================================================
+config:
+  # MQTT settings (used when mosquitto.external: false)
+  mqttHost: mosquitto
+  mqttPort: 1883
+  mqttWebsocketPort: 9001
+
+  # Database settings
+  dbPath: /app/data/history.db
+  devicesDbPath: /app/data/devices.db
+
+  # API settings
+  apiPort: 8080
+  apiPrefix: /api/v1
+
+# =============================================================================
+# Service Account
+# =============================================================================
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# =============================================================================
+# Pod Disruption Budget
+# =============================================================================
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1

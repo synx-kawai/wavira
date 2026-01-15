@@ -33,6 +33,10 @@
 #include "led_strip.h"
 #endif
 
+#ifdef CONFIG_WAVIRA_OTA_ENABLED
+#include "ota.h"
+#endif
+
 static const char *TAG = "wavira_csi";
 
 // LED Configuration
@@ -246,9 +250,19 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT connected");
             s_mqtt_connected = true;
-            char topic[128];
-            snprintf(topic, sizeof(topic), "wavira/device/%s/status", CONFIG_WAVIRA_DEVICE_ID);
-            esp_mqtt_client_publish(s_mqtt_client, topic, "{\"status\":\"online\"}", 0, 1, 1);
+            {
+                char topic[128];
+                snprintf(topic, sizeof(topic), "wavira/device/%s/status", CONFIG_WAVIRA_DEVICE_ID);
+                esp_mqtt_client_publish(s_mqtt_client, topic, "{\"status\":\"online\"}", 0, 1, 1);
+
+#ifdef CONFIG_WAVIRA_OTA_ENABLED
+                // Subscribe to OTA command topic
+                char ota_topic[128];
+                snprintf(ota_topic, sizeof(ota_topic), "wavira/device/%s/ota", CONFIG_WAVIRA_DEVICE_ID);
+                esp_mqtt_client_subscribe(s_mqtt_client, ota_topic, 1);
+                ESP_LOGI(TAG, "Subscribed to OTA topic: %s", ota_topic);
+#endif
+            }
             break;
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGW(TAG, "MQTT disconnected - attempting reconnect...");
@@ -265,6 +279,27 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 ESP_LOGE(TAG, "Connection refused error: 0x%x", event->error_handle->connect_return_code);
             }
             break;
+#ifdef CONFIG_WAVIRA_OTA_ENABLED
+        case MQTT_EVENT_DATA:
+            // Handle incoming MQTT messages
+            {
+                char ota_topic[128];
+                snprintf(ota_topic, sizeof(ota_topic), "wavira/device/%s/ota", CONFIG_WAVIRA_DEVICE_ID);
+
+                // Check if message is for OTA topic
+                if (event->topic_len > 0 && event->topic_len < 128) {
+                    char topic_buf[128];
+                    memcpy(topic_buf, event->topic, event->topic_len);
+                    topic_buf[event->topic_len] = '\0';
+
+                    if (strcmp(topic_buf, ota_topic) == 0) {
+                        ESP_LOGI(TAG, "Received OTA command");
+                        ota_handle_mqtt_command(topic_buf, event->data, event->data_len);
+                    }
+                }
+            }
+            break;
+#endif
         default:
             break;
     }
@@ -500,6 +535,16 @@ void app_main(void)
     s_mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(s_mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(s_mqtt_client);
+
+#ifdef CONFIG_WAVIRA_OTA_ENABLED
+    // Initialize OTA subsystem
+    esp_err_t ota_err = ota_init(s_mqtt_client);
+    if (ota_err != ESP_OK) {
+        ESP_LOGE(TAG, "OTA initialization failed: %s", esp_err_to_name(ota_err));
+    } else {
+        ESP_LOGI(TAG, "OTA enabled - firmware version: %s", ota_get_version());
+    }
+#endif
 
     // Start MQTT sender task
     xTaskCreate(&mqtt_sender_task, "mqtt_sender", 16384, NULL, 5, NULL);

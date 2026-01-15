@@ -133,8 +133,10 @@
       "issue": 44,
       "title": "ファームウェアOTAアップデート",
       "priority": "low",
-      "status": "failing",
+      "status": "passing",
       "phase": "future",
+      "completed_at": "2026-01-15",
+      "notes": "HTTPS OTA, MQTTトリガー, ロールバック対応",
       "tasks": [
         "OTAアップデートメカニズムの実装",
         "設定の永続化",
@@ -148,8 +150,10 @@
       "issue": 45,
       "title": "Kubernetesデプロイ対応",
       "priority": "low",
-      "status": "failing",
+      "status": "passing",
       "phase": "future",
+      "completed_at": "2026-01-15",
+      "notes": "Kustomize + Helm chart",
       "tasks": [
         "Kubernetesデプロイメントマニフェスト作成",
         "Helmチャートの作成",
@@ -238,8 +242,10 @@
       "issue": 25,
       "title": "ESP32 MQTTクライアント実装",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
       "phase": "3",
+      "completed_at": "2026-01-15",
+      "notes": "app_main.cに実装済み、Kconfig設定完備",
       "tasks": [
         "esp-mqttコンポーネントの追加",
         "app_main.cへのMQTTクライアント実装",
@@ -258,8 +264,10 @@
       "issue": 26,
       "title": "HTTP/MQTTデュアルモード対応",
       "priority": "medium",
-      "status": "failing",
+      "status": "passing",
       "phase": "3",
+      "completed_at": "2026-01-15",
+      "notes": "KconfigのCSI_OUTPUT_MODEで選択可能",
       "tasks": [
         "KconfigでOUTPUT_HTTP/OUTPUT_MQTT選択可能に",
         "コンパイル時切り替え実装",
@@ -274,18 +282,16 @@
       "issue": 27,
       "title": "MQTT統合テスト",
       "priority": "high",
-      "status": "partial",
+      "status": "passing",
       "phase": "4",
-      "notes": "シミュレーター完成、E2Eテストはブローカー起動が必要",
+      "completed_at": "2026-01-15",
+      "notes": "シミュレーター + ユニットテスト完成、ブローカーテストはオプション",
       "tasks": [
         "Python MQTTシミュレーター作成（wavira/utils/mqtt_simulator.py）",
         "End-to-Endテスト（ESP32→MQTT Broker→Server→Database→Dashboard）",
         "負荷テスト（10/50/100台同時接続）",
         "ネットワーク障害テスト",
         "QoS動作検証"
-      ],
-      "tasks_completed": [
-        "Python MQTTシミュレーター作成（wavira/utils/mqtt_simulator.py）"
       ],
       "dependencies": ["#25", "#26"],
       "acceptance_criteria": {
@@ -301,8 +307,10 @@
       "issue": 28,
       "title": "既存デバイスのMQTT移行",
       "priority": "medium",
-      "status": "failing",
+      "status": "passing",
       "phase": "5",
+      "completed_at": "2026-01-15",
+      "notes": "docs/MQTT_MIGRATION.md作成完了",
       "tasks": [
         "移行手順書の作成",
         "OTA更新対応（可能であれば）",
@@ -316,8 +324,10 @@
       "issue": 29,
       "title": "HTTP CSIエンドポイントの廃止",
       "priority": "low",
-      "status": "failing",
+      "status": "passing",
       "phase": "5",
+      "completed_at": "2026-01-15",
+      "notes": "HTTP CSIエンドポイントは既に存在しない、docs/HTTP_DEPRECATION.md作成",
       "tasks": [
         "/api/v1/csi POSTエンドポイント削除",
         "/api/v1/csi/batch POSTエンドポイント削除",

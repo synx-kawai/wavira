@@ -1,0 +1,78 @@
+{{- if .Values.ingress.enabled }}
+{{- if .Values.ingress.api.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "wavira.fullname" . }}-api
+  labels:
+    {{- include "wavira.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-connections: "100"
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.api.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.api.host }}
+      secretName: {{ .Values.ingress.api.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.api.host }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.api.path }}
+            pathType: {{ .Values.ingress.api.pathType }}
+            backend:
+              service:
+                name: {{ include "wavira.fullname" . }}-history-collector
+                port:
+                  number: {{ .Values.historyCollector.service.port }}
+{{- end }}
+
+{{- if and .Values.ingress.websocket.enabled .Values.mosquitto.enabled (not .Values.mosquitto.external) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "wavira.fullname" . }}-websocket
+  labels:
+    {{- include "wavira.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.websocket.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.websocket.host }}
+      secretName: {{ .Values.ingress.websocket.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.websocket.host }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.websocket.path }}
+            pathType: {{ .Values.ingress.websocket.pathType }}
+            backend:
+              service:
+                name: {{ include "wavira.fullname" . }}-mosquitto
+                port:
+                  number: {{ .Values.mosquitto.service.websocketPort }}
+{{- end }}
+{{- end }}

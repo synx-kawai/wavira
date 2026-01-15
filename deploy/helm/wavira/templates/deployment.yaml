@@ -1,0 +1,198 @@
+{{- if .Values.historyCollector.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "wavira.fullname" . }}-history-collector
+  labels:
+    {{- include "wavira.historyCollector.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.historyCollector.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "wavira.historyCollector.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.historyCollector.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "wavira.historyCollector.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "wavira.serviceAccountName" . }}
+      securityContext:
+        fsGroup: {{ .Values.historyCollector.securityContext.runAsUser }}
+      containers:
+        - name: history-collector
+          image: "{{ .Values.historyCollector.image.repository }}:{{ .Values.historyCollector.image.tag }}"
+          imagePullPolicy: {{ .Values.historyCollector.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.apiPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "wavira.fullname" . }}-config
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            {{- if .Values.security.apiKey }}
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "wavira.fullname" . }}-secrets
+                  key: API_KEY
+            {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          {{- if .Values.historyCollector.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.historyCollector.livenessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.historyCollector.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.historyCollector.livenessProbe.periodSeconds }}
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- end }}
+          {{- if .Values.historyCollector.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.historyCollector.readinessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.historyCollector.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.historyCollector.readinessProbe.periodSeconds }}
+            timeoutSeconds: 3
+            failureThreshold: 3
+          {{- end }}
+          resources:
+            {{- toYaml .Values.historyCollector.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: {{ .Values.historyCollector.securityContext.runAsNonRoot }}
+            runAsUser: {{ .Values.historyCollector.securityContext.runAsUser }}
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: data
+          {{- if .Values.historyCollector.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "wavira.fullname" . }}-history-collector-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.historyCollector.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.historyCollector.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.historyCollector.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
+---
+{{- if and .Values.mosquitto.enabled (not .Values.mosquitto.external) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "wavira.fullname" . }}-mosquitto
+  labels:
+    {{- include "wavira.mosquitto.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.mosquitto.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "wavira.mosquitto.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.mosquitto.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "wavira.mosquitto.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "wavira.serviceAccountName" . }}
+      securityContext:
+        fsGroup: {{ .Values.mosquitto.securityContext.runAsGroup }}
+      containers:
+        - name: mosquitto
+          image: "{{ .Values.mosquitto.image.repository }}:{{ .Values.mosquitto.image.tag }}"
+          imagePullPolicy: {{ .Values.mosquitto.image.pullPolicy }}
+          ports:
+            - name: mqtt
+              containerPort: {{ .Values.mosquitto.service.mqttPort }}
+              protocol: TCP
+            - name: websocket
+              containerPort: {{ .Values.mosquitto.service.websocketPort }}
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /mosquitto/config/mosquitto.conf
+              subPath: mosquitto.conf
+              readOnly: true
+            - name: data
+              mountPath: /mosquitto/data
+            - name: log
+              mountPath: /mosquitto/log
+          livenessProbe:
+            tcpSocket:
+              port: mqtt
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: mqtt
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.mosquitto.resources | nindent 12 }}
+          securityContext:
+            runAsUser: {{ .Values.mosquitto.securityContext.runAsUser }}
+            runAsGroup: {{ .Values.mosquitto.securityContext.runAsGroup }}
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "wavira.fullname" . }}-mosquitto
+        - name: data
+          {{- if .Values.mosquitto.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "wavira.fullname" . }}-mosquitto-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: log
+          emptyDir: {}
+      {{- with .Values.mosquitto.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mosquitto.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mosquitto.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

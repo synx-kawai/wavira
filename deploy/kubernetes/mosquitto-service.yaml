@@ -1,0 +1,48 @@
+---
+# Mosquitto MQTT Broker Service
+# Provides MQTT and WebSocket endpoints
+apiVersion: v1
+kind: Service
+metadata:
+  name: mosquitto
+  namespace: wavira
+  labels:
+    app.kubernetes.io/name: wavira
+    app.kubernetes.io/component: mosquitto
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: wavira
+    app.kubernetes.io/component: mosquitto
+  ports:
+    - name: mqtt
+      port: 1883
+      targetPort: mqtt
+      protocol: TCP
+    - name: websocket
+      port: 9001
+      targetPort: websocket
+      protocol: TCP
+
+---
+# Optional: NodePort Service for external MQTT access
+# Uncomment if ESP32 devices need to connect from outside the cluster
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: mosquitto-external
+#   namespace: wavira
+#   labels:
+#     app.kubernetes.io/name: wavira
+#     app.kubernetes.io/component: mosquitto
+# spec:
+#   type: NodePort
+#   selector:
+#     app.kubernetes.io/name: wavira
+#     app.kubernetes.io/component: mosquitto
+#   ports:
+#     - name: mqtt
+#       port: 1883
+#       targetPort: mqtt
+#       nodePort: 31883
+#       protocol: TCP

@@ -1,0 +1,11 @@
+# Wavira CSI OTA Partition Table (4MB Flash for OTA)
+# Note: Firmware partition offset needs to be 64K (0x10000) aligned
+# Partition table offset: 0xa000 (matches sdkconfig.defaults)
+# Total flash: 0x400000 (4MB) - required for proper OTA
+#
+# Name,     Type, SubType,  Offset,     Size,   Flags
+nvs,        data, nvs,      0xc000,     16K,
+otadata,    data, ota,      0x10000,    8K,
+phy_init,   data, phy,      0x12000,    4K,
+ota_0,      app,  ota_0,    0x20000,    1984K,
+ota_1,      app,  ota_1,    0x210000,   1984K,

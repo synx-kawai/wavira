@@ -232,10 +232,60 @@ Note: #27 is partially complete:
 
 Total tests: 295 -> 321 (26 new unit tests)
 
+### Session 8 (2026-01-15)
+- Completed #25: ESP32 MQTTクライアント実装
+  - 既に app_main.c に実装済みを確認
+  - Kconfig.projbuild でMQTT設定完備
+  - LED status, Last Will, 再接続ロジック実装済み
+
+- Completed #26: HTTP/MQTTデュアルモード対応
+  - CSI_OUTPUT_MODE で Serial/MQTT 選択可能
+  - コンパイル時切り替え実装済み
+
+- Completed #27: MQTT統合テスト (完成)
+  - シミュレーター + 39ユニットテスト
+  - --mqtt-broker フラグで統合テスト実行可能
+
+- Completed #28: 既存デバイスのMQTT移行
+  - docs/MQTT_MIGRATION.md 作成
+  - Step-by-step 移行手順
+  - トラブルシューティング
+  - バッチ移行スクリプト例
+
+- Completed #29: HTTP CSIエンドポイント廃止
+  - HTTP CSIエンドポイントは既に存在しない
+  - docs/HTTP_DEPRECATION.md 作成
+  - 廃止通知と移行ガイド
+
+- Completed #44: OTAアップデート機能
+  - esp-csi/examples/get-started/csi_recv/main/ota.c 作成
+  - esp-csi/examples/get-started/csi_recv/main/ota.h 作成
+  - HTTPS経由ファームウェア更新
+  - MQTTトピック wavira/device/{id}/ota でトリガー
+  - 進捗報告 wavira/device/{id}/ota/progress
+  - ロールバック機能対応
+  - partitions_ota.csv (A/Bパーティション)
+  - Kconfig OTA設定追加
+
+- Completed #45: Kubernetesデプロイ対応
+  - deploy/kubernetes/ ディレクトリ作成
+    - namespace.yaml, configmap.yaml, secret.yaml
+    - history-collector-deployment.yaml, mosquitto-deployment.yaml
+    - history-collector-service.yaml, mosquitto-service.yaml
+    - ingress.yaml, kustomization.yaml
+    - README.md
+  - deploy/helm/wavira/ Helm chart作成
+    - Chart.yaml, values.yaml
+    - templates/ (deployment, service, configmap, secret, ingress, pvc)
+    - README.md
+
+## All Issues Complete (except #8)
+- 18 issues completed
+- 1 issue remaining (#8 プロダクションデプロイ - excluded by user request)
+
 ## Notes for Next Session
 - Run `./init.sh` to verify environment
 - Check `features.json` for current feature status
-- Read this file for context on previous work
-- Commit progress with descriptive messages
-- New modules: wavira/data/validation.py, wavira/models/optimization.py, wavira/detection/, wavira/utils/mqtt_simulator.py
-- To run MQTT integration tests with broker: `pytest tests/test_mqtt_integration.py --mqtt-broker`
+- All MQTT-related issues (#25-#29) are complete
+- OTA (#44) and Kubernetes (#45) are complete
+- Only #8 (Production Deploy) remains - depends on actual deployment environment

@@ -7,6 +7,9 @@ set(COMPONENT_REQUIRES
     driver
     mqtt
     lwip
+    esp_https_ota
+    app_update
+    esp_http_client
 )
 
 idf_component_register(SRC_DIRS "."

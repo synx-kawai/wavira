@@ -183,4 +183,78 @@ menu "Wavira CSI MQTT Configuration"
             Enable debug messages on serial port even in MQTT mode.
             Useful for debugging but increases power consumption.
 
+    menu "OTA Update Configuration"
+        depends on CSI_OUTPUT_MQTT
+
+        config WAVIRA_OTA_ENABLED
+            bool "Enable OTA Updates"
+            default y
+            help
+                Enable Over-The-Air firmware updates via MQTT trigger.
+                OTA commands are received on topic: wavira/device/{id}/ota
+                Progress is reported on: wavira/device/{id}/ota/progress
+
+        config WAVIRA_OTA_SKIP_CERT_VERIFY
+            bool "Skip Server Certificate Verification"
+            depends on WAVIRA_OTA_ENABLED
+            default y
+            help
+                Skip verification of the OTA server's SSL certificate.
+                Enable this for development/testing with self-signed certs.
+                DISABLE this in production for security.
+
+        config WAVIRA_OTA_PARTIAL_HTTP
+            bool "Enable Partial HTTP Downloads"
+            depends on WAVIRA_OTA_ENABLED
+            default y
+            help
+                Enable chunked/partial HTTP downloads for OTA.
+                Improves reliability on unstable connections.
+
+        config WAVIRA_OTA_AUTO_VALIDATE
+            bool "Auto-validate Firmware After Boot"
+            depends on WAVIRA_OTA_ENABLED
+            default y
+            help
+                Automatically mark new firmware as valid after successful boot.
+                If disabled, firmware must be manually validated via MQTT command,
+                otherwise it will rollback on next reboot.
+
+        config WAVIRA_OTA_VALIDATION_DELAY_S
+            int "Validation Delay (seconds)"
+            depends on WAVIRA_OTA_ENABLED && !WAVIRA_OTA_AUTO_VALIDATE
+            default 60
+            range 10 600
+            help
+                Time in seconds before auto-rollback if firmware is not validated.
+                Only applies when auto-validate is disabled.
+
+        config WAVIRA_OTA_MAX_RETRIES
+            int "Maximum OTA Retries"
+            depends on WAVIRA_OTA_ENABLED
+            default 3
+            range 1 10
+            help
+                Maximum number of retry attempts for failed OTA downloads.
+
+        config WAVIRA_OTA_RECV_TIMEOUT_MS
+            int "HTTP Receive Timeout (ms)"
+            depends on WAVIRA_OTA_ENABLED
+            default 10000
+            range 5000 60000
+            help
+                Timeout for receiving HTTP data during OTA download.
+                Increase for slow or unreliable networks.
+
+        config WAVIRA_OTA_BUFFER_SIZE
+            int "OTA Buffer Size (bytes)"
+            depends on WAVIRA_OTA_ENABLED
+            default 4096
+            range 1024 16384
+            help
+                Buffer size for OTA data chunks.
+                Larger values may improve speed but use more memory.
+
+    endmenu
+
 endmenu
