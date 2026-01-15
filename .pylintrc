@@ -1,0 +1,51 @@
+[MASTER]
+ignore=CVS,.git,__pycache__,build,dist,.eggs,outputs,data,checkpoints
+ignore-patterns=test_.*\.py
+jobs=0
+persistent=yes
+suggestion-mode=yes
+
+[MESSAGES CONTROL]
+disable=
+    C0114,  # missing-module-docstring
+    C0115,  # missing-class-docstring
+    C0116,  # missing-function-docstring
+    R0903,  # too-few-public-methods
+    R0913,  # too-many-arguments
+    R0914,  # too-many-locals
+    W0511,  # fixme
+    W0212,  # protected-access (for tests)
+    E1101,  # no-member (false positives with torch)
+
+[FORMAT]
+max-line-length=100
+max-module-lines=1000
+
+[BASIC]
+good-names=i,j,k,x,y,z,n,m,t,lr,db,id,_
+
+[DESIGN]
+max-args=10
+max-attributes=15
+max-bool-expr=5
+max-branches=15
+max-locals=20
+max-parents=7
+max-public-methods=25
+max-returns=6
+max-statements=50
+min-public-methods=1
+
+[SIMILARITIES]
+min-similarity-lines=4
+ignore-comments=yes
+ignore-docstrings=yes
+ignore-imports=yes
+
+[TYPECHECK]
+ignored-modules=torch,numpy,scipy,sklearn
+
+[REPORTS]
+output-format=colorized
+reports=no
+score=yes

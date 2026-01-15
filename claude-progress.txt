@@ -50,6 +50,13 @@
   - Added Real-time Inference section with monitor_crowd.py documentation
   - Added Gesture Recognition section with train_gesture.py documentation
   - Removed all "Coming Soon" placeholders
+- Completed #39: CI/CD pipeline enhancement
+  - Created code-quality.yml (black, isort, flake8, pylint, mypy)
+  - Created security.yml (bandit, safety, pip-audit, CodeQL)
+  - Created docker-build.yml (GHCR push, Trivy scan)
+  - Created pyproject.toml with tool configurations
+  - Created .flake8 and .pylintrc configuration files
+  - Updated ci.yml with coverage reporting
 
 ## Feature Status Overview
 | ID | Issue | Title | Priority | Status |
@@ -58,7 +65,7 @@
 | test-coverage | #38 | テストカバレッジ拡充 | high | passing |
 | security-hardening | #40 | セキュリティ強化 | high | passing |
 | readme-completion | #37 | README.md完成 | medium | passing |
-| cicd-enhancement | #39 | CI/CD強化 | medium | pending |
+| cicd-enhancement | #39 | CI/CD強化 | medium | passing |
 | developer-docs | #41 | 開発者ドキュメント | medium | pending |
 | data-validation | #42 | データ検証 | medium | pending |
 | performance-optimization | #43 | モデル最適化 | medium | pending |

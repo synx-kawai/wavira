@@ -1,0 +1,81 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort pylint
+
+    - name: Check formatting with black
+      run: black --check --diff wavira/ scripts/ tests/
+
+    - name: Check import sorting with isort
+      run: isort --check-only --diff wavira/ scripts/ tests/
+
+    - name: Lint with flake8
+      run: flake8 wavira/ scripts/ tests/ --count --show-source --statistics
+
+    - name: Lint with pylint
+      run: pylint wavira/ --exit-zero --output-format=colorized
+      continue-on-error: true
+
+  type-check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+        pip install mypy types-requests
+
+    - name: Type check with mypy
+      run: mypy wavira/ --ignore-missing-imports --no-error-summary
+      continue-on-error: true
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Run tests with coverage
+      run: |
+        pytest tests/ -v --cov=wavira --cov-report=xml --cov-report=term-missing --cov-fail-under=40
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: coverage.xml
+        fail_ci_if_error: false
