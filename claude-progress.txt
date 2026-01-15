@@ -3,7 +3,7 @@
 # Updated: 2026-01-15
 
 ## Current Status
-- 7 features completed, 11 features pending
+- 8 features completed, 10 features pending
 - Test count: 172 tests passing
 - Coverage: ~50%
 
@@ -89,11 +89,11 @@
 
 ### Pending by Phase
 
-#### Phase 2 - サーバーサイド実装
+#### Phase 2 - サーバーサイド実装 (完了)
 | ID | Issue | Title | Priority | Status |
 |----|-------|-------|----------|--------|
 | device-auth-mqtt | #23 | デバイス認証のMQTT対応 | high | passing |
-| device-online-offline | #24 | オンライン/オフライン検知 | medium | failing |
+| device-online-offline | #24 | オンライン/オフライン検知 | medium | passing |
 
 #### Phase 3 - ファームウェア実装
 | ID | Issue | Title | Priority | Status |
@@ -144,14 +144,28 @@
   - Added test_device_manager.py (40 new tests)
   - Total tests: 132 -> 172
 
+- Completed #24: オンライン/オフライン検知のMQTT対応
+  - Extended MQTTCollector for device status handling:
+    - Subscribe to wavira/device/+/status (online announcements)
+    - Subscribe to wavira/device/+/will (Last Will offline detection)
+    - Publish to wavira/status/{device_id} (dashboard notifications)
+  - Added device status API endpoints:
+    - GET /api/v1/status - All devices status with summary
+    - GET /api/v1/status/{device_id} - Single device status
+    - GET /api/v1/status/online - Online devices only
+  - Real-time status updates via MQTT retain messages
+
+## Phase 2 Complete!
+Both server-side MQTT features (#23, #24) are now implemented.
+
 ## Recommended Next Steps
-1. **最優先**: Phase 2 の #24 (オンライン/オフライン検知) を実装
-2. Phase 3 の #25 (ESP32 MQTT) は実機テストが必要
-3. 並行して #42 (データ検証) や #43 (最適化) を進められる
+1. Phase 3 の #25 (ESP32 MQTT クライアント) は実機が必要
+2. #42 (データ検証) または #43 (最適化) を進められる
+3. #46 (呼吸/存在検知) は既存コードがあり着手可能
 
 ## Notes for Next Session
 - Run `./init.sh` to verify environment
 - Check `features.json` for current feature status
 - Read this file for context on previous work
 - Commit progress with descriptive messages
-- #23 completed, proceed to #24
+- Phase 2 complete, move to Phase 3 or candidate features

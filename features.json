@@ -219,8 +219,9 @@
       "issue": 24,
       "title": "デバイスオンライン/オフライン検知のMQTT対応",
       "priority": "medium",
-      "status": "failing",
+      "status": "passing",
       "phase": "2",
+      "completed_at": "2026-01-15",
       "tasks": [
         "Last Willメッセージによるオフライン検知",
         "クリーンセッション設定の最適化",
