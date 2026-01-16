@@ -42,3 +42,10 @@ terraform/*.tfstate
 terraform/*.tfstate.*
 terraform/*.tfvars
 terraform/.terraform.lock.hcl
+
+# Test coverage
+.coverage
+htmlcov/
+
+# Training outputs
+outputs/
