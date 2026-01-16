@@ -141,13 +141,17 @@ static void led_init(void)
     gpio_set_level(LED_GPIO, 0);
     ESP_LOGI(TAG, "TX LED initialized on GPIO%d", LED_GPIO);
 
-    // Startup indication: 3 quick blinks
+    // Startup indication: 3 slow blinks (more visible)
+    ESP_LOGI(TAG, "LED startup blink test...");
     for (int i = 0; i < 3; i++) {
         gpio_set_level(LED_GPIO, 1);
-        usleep(150 * 1000);
+        ESP_LOGI(TAG, "LED ON");
+        usleep(500 * 1000);  // 500ms ON
         gpio_set_level(LED_GPIO, 0);
-        usleep(150 * 1000);
+        ESP_LOGI(TAG, "LED OFF");
+        usleep(500 * 1000);  // 500ms OFF
     }
+    ESP_LOGI(TAG, "LED startup blink complete");
 }
 
 void app_main()

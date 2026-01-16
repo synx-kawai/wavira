@@ -31,15 +31,19 @@
 #include "protocol_examples_common.h"
 
 #define CONFIG_SEND_FREQUENCY      100
-#ifndef CONFIG_BLINK_GPIO
-    #define BLINK_GPIO 2
-#else
+
+// LED GPIO configuration
+// ESP32-S3 XIAO: GPIO21 (built-in yellow LED)
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+    #define BLINK_GPIO 21
+#elif defined(CONFIG_BLINK_GPIO)
     #define BLINK_GPIO CONFIG_BLINK_GPIO
+#else
+    #define BLINK_GPIO 2
 #endif
 
-// LED Activity indicator (network switch style)
-static volatile bool s_led_rx_activity = false;
-static volatile int s_led_activity_counter = 0;
+// LED Activity indicator - flash on each CSI packet
+static SemaphoreHandle_t s_led_semaphore = NULL;
 
 #if CONFIG_IDF_TARGET_ESP32C5
     #define CSI_FORCE_LLTF                      1   
@@ -180,8 +184,10 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     ets_printf("]\"\n");
     s_count++;
 
-    // Signal LED activity on CSI receive (RX indicator)
-    s_led_rx_activity = true;
+    // Trigger LED blink (handled by separate task)
+    if (s_led_semaphore) {
+        xSemaphoreGiveFromISR(s_led_semaphore, NULL);
+    }
 }
 
 static void wifi_csi_init()
@@ -260,38 +266,45 @@ static esp_err_t wifi_ping_router_start(ip_event_got_ip_t* event)
     return ESP_OK;
 }
 
-// Network switch style LED task
-// - Startup: slow blink (waiting for WiFi/CSI)
-// - Active: brief flash on each CSI packet (like network activity LED)
-void led_blink_task(void *pvParameter)
+// LED blink task - waits for semaphore signal
+static void led_blink_task(void *pvParameter)
 {
+    ESP_LOGI(TAG, "LED blink task started");
+    while (1) {
+        // Wait for signal from CSI callback
+        if (xSemaphoreTake(s_led_semaphore, portMAX_DELAY) == pdTRUE) {
+            gpio_set_level(BLINK_GPIO, 0);  // LED ON (active LOW)
+            ets_delay_us(5000);             // 5ms pulse (safe in task context)
+            gpio_set_level(BLINK_GPIO, 1);  // LED OFF
+        }
+    }
+}
+
+// Initialize LED GPIO
+// XIAO ESP32S3: LED is active LOW (0=ON, 1=OFF)
+static void led_init(void)
+{
+    ESP_LOGI(TAG, "LED init, GPIO=%d (active LOW)", BLINK_GPIO);
+
     gpio_reset_pin(BLINK_GPIO);
     gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(BLINK_GPIO, 1);  // LED OFF (active LOW)
 
-    // Initial startup blink (3 times to indicate boot)
+    // Create semaphore for LED signaling
+    s_led_semaphore = xSemaphoreCreateBinary();
+
+    // Startup blink (3 times to indicate boot)
+    ESP_LOGI(TAG, "LED startup blink...");
     for (int i = 0; i < 3; i++) {
-        gpio_set_level(BLINK_GPIO, 1);
-        vTaskDelay(150 / portTICK_PERIOD_MS);
-        gpio_set_level(BLINK_GPIO, 0);
-        vTaskDelay(150 / portTICK_PERIOD_MS);
+        gpio_set_level(BLINK_GPIO, 0);  // LED ON
+        vTaskDelay(300 / portTICK_PERIOD_MS);
+        gpio_set_level(BLINK_GPIO, 1);  // LED OFF
+        vTaskDelay(300 / portTICK_PERIOD_MS);
     }
+    ESP_LOGI(TAG, "LED ready");
 
-    // Main LED loop - network switch style activity indicator
-    while (1) {
-        if (s_led_rx_activity) {
-            // Brief flash on RX activity (like network switch LED)
-            gpio_set_level(BLINK_GPIO, 1);
-            s_led_rx_activity = false;
-            s_led_activity_counter = 2;  // Keep LED on for ~40ms
-        } else if (s_led_activity_counter > 0) {
-            // Maintain LED during activity pulse
-            s_led_activity_counter--;
-            if (s_led_activity_counter == 0) {
-                gpio_set_level(BLINK_GPIO, 0);
-            }
-        }
-        vTaskDelay(20 / portTICK_PERIOD_MS);  // 50Hz check rate for responsive LED
-    }
+    // Start LED blink task
+    xTaskCreate(led_blink_task, "led_blink", 4096, NULL, 5, NULL);
 }
 
 void app_main()
@@ -300,7 +313,8 @@ void app_main()
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    xTaskCreate(&led_blink_task, "led_blink_task", 2048, NULL, 5, NULL);
+    // Initialize LED (will blink in CSI callback)
+    led_init();
 
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &got_ip_event_handler, NULL));
 
